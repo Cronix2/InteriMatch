@@ -1,0 +1,95 @@
+LICENCE PROPRIÉTAIRE — InteriMatch AI
+
+Copyright (c) 2025-2026 Clément Linossier. Tous droits réservés.
+
+===============================================================================
+
+AVIS IMPORTANT — LISEZ ATTENTIVEMENT AVANT TOUTE UTILISATION
+
+Ce logiciel et l'ensemble des fichiers associés (ci-après le « Logiciel ») sont
+la propriété exclusive de Clément Linossier (ci-après l'« Auteur »).
+
+===============================================================================
+
+1. INTERDICTIONS
+
+Sauf autorisation écrite, expresse et préalable de l'Auteur, il est
+STRICTEMENT INTERDIT de :
+
+  a) Utiliser le Logiciel, en tout ou en partie, à quelque fin que ce soit ;
+  b) Copier, reproduire ou dupliquer le Logiciel ;
+  c) Modifier, adapter, traduire ou créer des œuvres dérivées du Logiciel ;
+  d) Distribuer, publier, transmettre, sous-licencier, louer, prêter ou
+     mettre à disposition le Logiciel à un tiers ;
+  e) Décompiler, désassembler, procéder à de l'ingénierie inverse ou tenter
+     d'extraire le code source du Logiciel ;
+  f) Utiliser le Logiciel à des fins commerciales ou non commerciales ;
+  g) Intégrer le Logiciel, en tout ou en partie, dans un autre logiciel ou
+     projet.
+
+2. AUTORISATION EXPLICITE REQUISE
+
+Toute utilisation du Logiciel nécessite une autorisation écrite préalable de
+l'Auteur. Les demandes d'autorisation doivent être adressées à :
+
+  Clément Linossier
+  Email : clement.linossier@efrei.net
+  GitHub : https://github.com/Cronix2
+
+L'Auteur se réserve le droit d'accorder ou de refuser toute demande
+d'autorisation à sa seule et entière discrétion, sans obligation de
+justification.
+
+3. PROPRIÉTÉ INTELLECTUELLE
+
+Le Logiciel, y compris mais sans s'y limiter, son code source, son
+architecture, sa documentation, ses algorithmes et son design, est protégé par
+les lois françaises et internationales relatives au droit d'auteur et à la
+propriété intellectuelle.
+
+Le Logiciel demeure la propriété exclusive de l'Auteur. Aucune disposition de
+cette licence ne saurait être interprétée comme un transfert de propriété.
+
+4. CONSULTATION DU CODE SOURCE
+
+La consultation du code source rendue possible par l'hébergement sur une
+plateforme publique (par exemple GitHub) ne constitue en aucun cas une
+autorisation d'utilisation, de copie, de modification ou de distribution.
+
+La visibilité publique du dépôt est uniquement à des fins de transparence et
+de démonstration. Elle n'accorde aucun droit ni licence d'aucune sorte.
+
+5. ABSENCE DE GARANTIE
+
+LE LOGICIEL EST FOURNI « EN L'ÉTAT », SANS GARANTIE D'AUCUNE SORTE, EXPRESSE
+OU IMPLICITE, Y COMPRIS MAIS SANS S'Y LIMITER LES GARANTIES DE QUALITÉ
+MARCHANDE, D'ADÉQUATION À UN USAGE PARTICULIER ET D'ABSENCE DE CONTREFAÇON.
+
+6. LIMITATION DE RESPONSABILITÉ
+
+EN AUCUN CAS L'AUTEUR NE POURRA ÊTRE TENU RESPONSABLE DE TOUT DOMMAGE DIRECT,
+INDIRECT, ACCESSOIRE, SPÉCIAL, EXEMPLAIRE OU CONSÉCUTIF (Y COMPRIS, MAIS SANS
+S'Y LIMITER, LA PERTE DE DONNÉES, L'INTERRUPTION D'ACTIVITÉ OU LA PERTE DE
+BÉNÉFICES) RÉSULTANT DE L'UTILISATION OU DE L'IMPOSSIBILITÉ D'UTILISER LE
+LOGICIEL.
+
+7. DROIT APPLICABLE ET JURIDICTION
+
+Cette licence est régie par le droit français. Tout litige sera soumis à la
+compétence exclusive des tribunaux français compétents.
+
+8. DIVISIBILITÉ
+
+Si une disposition de cette licence est jugée invalide ou inapplicable, les
+autres dispositions resteront pleinement en vigueur.
+
+9. INTÉGRALITÉ DE L'ACCORD
+
+Cette licence constitue l'intégralité de l'accord entre l'Auteur et tout
+utilisateur potentiel concernant l'utilisation du Logiciel. Elle remplace tout
+accord antérieur, écrit ou oral, relatif à son objet.
+
+===============================================================================
+
+Pour toute question relative à cette licence, contactez :
+clement.linossier@efrei.net
