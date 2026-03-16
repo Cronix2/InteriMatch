@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # --- IA / LLM ---
     ai_model: str = "alfred-4.2"
-    ai_server_url: str = "https://trust.liveintelligence.orange-business.com"
+    ai_server_url: str = "https://trust.liveintelligence.orange-business.com/api/v2"
     ai_api_key: str = ""
     ai_temperature: float = 0.3
     ai_max_tokens: int = 2000
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     france_travail_client_id: str = ""
     france_travail_client_secret: str = ""
     france_travail_base_url: str = "https://api.francetravail.io/partenaire/offresdemploi/v2"
-    france_travail_auth_url: str = "https://entreprise.francetravail.fr/connexion/oauth2/access_token"
+    france_travail_auth_url: str = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
 
     # --- JWT / Sécurité ---
     secret_key: str = "CHANGEZ-MOI-EN-PRODUCTION"

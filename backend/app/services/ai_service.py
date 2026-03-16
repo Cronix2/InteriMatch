@@ -4,7 +4,7 @@ Centralise tous les appels au LLM.
 """
 
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
 from app.core.config import get_settings
@@ -20,6 +20,7 @@ def get_llm() -> ChatOpenAI:
         api_key=settings.ai_api_key or "not-needed",
         temperature=settings.ai_temperature,
         max_tokens=settings.ai_max_tokens,
+        request_timeout=120,
     )
 
 

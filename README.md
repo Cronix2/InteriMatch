@@ -18,16 +18,16 @@
 
 ## Stack technique
 
-| Couche | Technologie |
-| ------ | ----------- |
-| **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS |
-| **Backend** | Python 3.12+, FastAPI |
-| **IA / LLM** | LangChain + API OpenAI-compatible (alfred-4.2 via Orange Business) |
-| **Base de données** | PostgreSQL 16 |
-| **Cache** | Redis 7 |
-| **CV Parsing** | pdfplumber, python-docx |
-| **API externe** | France Travail (Offres d'emploi v2) |
-| **Infra** | Docker, Docker Compose |
+| Couche              | Technologie                                                        |
+| ------------------- | ------------------------------------------------------------------ |
+| **Frontend**        | Next.js 15, React 19, TypeScript, Tailwind CSS                     |
+| **Backend**         | Python 3.12+, FastAPI                                              |
+| **IA / LLM**        | LangChain + API OpenAI-compatible (alfred-4.2 via Orange Business) |
+| **Base de données** | PostgreSQL 16                                                      |
+| **Cache**           | Redis 7                                                            |
+| **CV Parsing**      | pdfplumber, python-docx                                            |
+| **API externe**     | France Travail (Offres d'emploi v2)                                |
+| **Infra**           | Docker, Docker Compose                                             |
 
 ---
 
@@ -35,15 +35,15 @@
 
 ```text
 ┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Frontend    │────▶│  Backend (API)   │────▶│  PostgreSQL     │
-│  Next.js     │     │  FastAPI         │     │                 │
+│  Frontend   │──▶│  Backend (API)    │──▶│  PostgreSQL     │
+│  Next.js    │     │  FastAPI         │     │                 │
 └─────────────┘     ├──────────────────┤     └─────────────────┘
-                    │  Services :       │
-                    │  • CV Parser      │────▶ pdfplumber / docx
-                    │  • AI Service     │────▶ LangChain → LLM
-                    │  • France Travail │────▶ API France Travail
-                    │  • Matching       │
-                    │  • Email Gen.     │
+                    │  Services :      │
+                    │  • CV Parser     │────▶ pdfplumber / docx
+                    │  • AI Service    │────▶ LangChain → LLM
+                    │  • France Travail│────▶ API France Travail
+                    │  • Matching      │
+                    │  • Email Gen.    │
                     └──────────────────┘
 ```
 
@@ -72,9 +72,9 @@ cp .env.example .env
 docker compose up -d
 ```
 
-- **Frontend** : <http://localhost:3000>
-- **Backend API** : <http://localhost:8000>
-- **Swagger docs** : <http://localhost:8000/docs>
+- **Frontend** : [http://localhost:3000](http://localhost:3000)
+- **Backend API** : [http://localhost:8000](http://localhost:8000)
+- **Swagger docs** : [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ### 3. Lancement en dev local (sans Docker)
 
@@ -154,18 +154,18 @@ InteriMatch/
 
 ## API Endpoints
 
-| Méthode | Route | Description |
-| ------- | ----- | ----------- |
-| POST | `/api/v1/auth/register` | Inscription |
-| POST | `/api/v1/auth/login` | Connexion (retourne JWT) |
-| POST | `/api/v1/cv/upload` | Upload et analyse d'un CV |
-| GET | `/api/v1/cv/profile/{resume_id}` | Profil extrait d'un CV |
-| GET | `/api/v1/candidates/` | Liste des candidats |
-| POST | `/api/v1/job-offers/search` | Recherche offres France Travail |
-| POST | `/api/v1/matching/compute` | Lance le matching candidat/offres |
-| GET | `/api/v1/matching/candidate/{id}` | Résultats de matching |
-| POST | `/api/v1/emails/generate` | Génère un email |
-| PUT | `/api/v1/emails/{id}` | Édite / valide un email |
+| Méthode  | Route                             | Description                       |
+| -------- | --------------------------------- | --------------------------------- |
+| POST     | `/api/v1/auth/register`           | Inscription                       |
+| POST     | `/api/v1/auth/login`              | Connexion (retourne JWT)          |
+| POST     | `/api/v1/cv/upload`               | Upload et analyse d'un CV         |
+| GET      | `/api/v1/cv/profile/{resume_id}`  | Profil extrait d'un CV            |
+| GET      | `/api/v1/candidates/`             | Liste des candidats               |
+| POST     | `/api/v1/job-offers/search`       | Recherche offres France Travail   |
+| POST     | `/api/v1/matching/compute`        | Lance le matching candidat/offres |
+| GET      | `/api/v1/matching/candidate/{id}` | Résultats de matching             |
+| POST     | `/api/v1/emails/generate`         | Génère un email                   |
+| PUT      | `/api/v1/emails/{id}`             | Édite / valide un email           |
 
 ---
 

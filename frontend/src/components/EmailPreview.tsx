@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Mail,
   Loader2,
@@ -24,8 +24,14 @@ export default function EmailPreview({
   const [editSubject, setEditSubject] = useState("");
   const [editBody, setEditBody] = useState("");
   const [copied, setCopied] = useState(false);
+  const generatedForIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (generatedForIdRef.current === matchingResultId) {
+      return;
+    }
+    generatedForIdRef.current = matchingResultId;
+
     const generate = async () => {
       setLoading(true);
       setError(null);

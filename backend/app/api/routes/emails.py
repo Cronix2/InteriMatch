@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -48,6 +49,14 @@ async def generate_email(
     match = result.scalar_one_or_none()
     if not match:
         raise HTTPException(status_code=404, detail="Résultat de matching introuvable")
+
+    # Idempotence: si un email existe déjà pour ce matching, le renvoyer directement
+    existing_result = await db.execute(
+        select(GeneratedEmail).where(GeneratedEmail.matching_result_id == match.id)
+    )
+    existing_email = existing_result.scalar_one_or_none()
+    if existing_email:
+        return existing_email
 
     # Récupérer le profil du candidat
     result = await db.execute(
@@ -104,8 +113,19 @@ async def generate_email(
         status="draft",
     )
     db.add(generated_email)
-    await db.flush()
-    await db.refresh(generated_email)
+    try:
+        await db.flush()
+        await db.refresh(generated_email)
+    except IntegrityError:
+        await db.rollback()
+        # Requête concurrente/dupliquée : retourner la version déjà créée
+        existing_after_race_result = await db.execute(
+            select(GeneratedEmail).where(GeneratedEmail.matching_result_id == match.id)
+        )
+        existing_after_race = existing_after_race_result.scalar_one_or_none()
+        if existing_after_race:
+            return existing_after_race
+        raise
     return generated_email
 
 

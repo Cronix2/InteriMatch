@@ -50,7 +50,8 @@ async def upload_cv(
     # Sauvegarde du fichier
     file_id = uuid.uuid4()
     safe_name = f"{file_id}{suffix}"
-    file_path = Path(settings.upload_dir) / safe_name
+    file_path = Path(settings.upload_dir).resolve() / safe_name
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(file_bytes)
 
     # Parsing du CV via IA

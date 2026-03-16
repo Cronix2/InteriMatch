@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import AuthScreen from "@/components/AuthScreen";
 import CVUpload from "@/components/CVUpload";
 import CandidateProfile from "@/components/CandidateProfile";
 import MatchingResults from "@/components/MatchingResults";
@@ -9,11 +10,31 @@ import EmailPreview from "@/components/EmailPreview";
 type Step = "upload" | "profile" | "matching" | "email";
 
 export default function Home() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [step, setStep] = useState<Step>("upload");
   const [candidateId, setCandidateId] = useState<string | null>(null);
   const [profileData, setProfileData] = useState<any>(null);
   const [matchingResults, setMatchingResults] = useState<any[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("interimatch_token");
+    if (token) setIsAuthenticated(true);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("interimatch_token");
+    setIsAuthenticated(false);
+    setStep("upload");
+    setCandidateId(null);
+    setProfileData(null);
+    setMatchingResults([]);
+    setSelectedMatch(null);
+  };
+
+  if (!isAuthenticated) {
+    return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
+  }
 
   return (
     <div className="min-h-screen">
@@ -58,6 +79,12 @@ export default function Home() {
               </button>
             ))}
           </nav>
+          <button
+            onClick={handleLogout}
+            className="ml-4 px-3 py-1.5 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+          >
+            Déconnexion
+          </button>
         </div>
       </header>
 

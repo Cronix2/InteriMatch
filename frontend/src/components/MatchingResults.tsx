@@ -59,6 +59,14 @@ export default function MatchingResults({
     return "text-red-700 bg-red-100";
   };
 
+  const getExcellenceScore = (match: any) => {
+    const skills = Number(match.skills_score ?? 0);
+    const experience = Number(match.experience_score ?? 0);
+    const education = Number(match.education_score ?? 0);
+    const title = Number(match.job_title_score ?? 0);
+    return 0.45 * skills + 0.35 * experience + 0.1 * education + 0.1 * title;
+  };
+
   return (
     <div className="max-w-5xl mx-auto">
       <h2 className="text-2xl font-bold text-gray-900 mb-6">
@@ -191,11 +199,19 @@ export default function MatchingResults({
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-3">
-                  <div
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold text-lg ${getScoreColor(match.global_score)}`}
-                  >
-                    <TrendingUp className="w-5 h-5" />
-                    {Math.round(match.global_score)}%
+                  <div className="space-y-2">
+                    <div
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold text-sm ${getScoreColor(match.global_score)}`}
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      Adéquation profil: {Math.round(match.global_score)}%
+                    </div>
+                    <div
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold text-sm ${getScoreColor(getExcellenceScore(match))}`}
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      Potentiel d'excellence: {Math.round(getExcellenceScore(match))}%
+                    </div>
                   </div>
                   <button
                     onClick={() => onSelectMatch(match)}

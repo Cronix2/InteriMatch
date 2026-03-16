@@ -17,14 +17,20 @@ router = APIRouter()
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     """Créer un nouveau compte utilisateur."""
-    result = await db.execute(select(User).where(User.email == user_in.email))
+    normalized_email = user_in.email.strip().lower()
+    full_name = user_in.full_name.strip()
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Le nom complet est requis")
+
+    result = await db.execute(select(User).where(User.email == normalized_email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Un compte avec cet email existe déjà")
 
     user = User(
-        email=user_in.email,
+        email=normalized_email,
         hashed_password=hash_password(user_in.password),
-        full_name=user_in.full_name,
+        full_name=full_name,
     )
     db.add(user)
     await db.flush()
@@ -35,10 +41,19 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 async def login(credentials: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authentification et retour du token JWT."""
-    result = await db.execute(select(User).where(User.email == credentials.email))
+    normalized_email = (credentials.email or "").strip().lower()
+    password = (credentials.password or "").strip()
+
+    if not normalized_email or not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email et mot de passe requis",
+        )
+
+    result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(credentials.password, user.hashed_password):
+    if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou mot de passe incorrect",

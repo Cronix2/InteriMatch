@@ -5,6 +5,7 @@ Gère l'authentification OAuth2 et la recherche d'offres.
 
 import time
 import logging
+from datetime import datetime
 
 import httpx
 
@@ -23,18 +24,24 @@ async def _get_access_token() -> str:
     if _token_cache["access_token"] and _token_cache["expires_at"] > now + 60:
         return _token_cache["access_token"]
 
+    auth_url = settings.france_travail_auth_url
+    payload = {
+        "grant_type": "client_credentials",
+        "client_id": settings.france_travail_client_id,
+        "client_secret": settings.france_travail_client_secret,
+        "scope": "api_offresdemploiv2 o2dsoffre",
+    }
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            settings.france_travail_auth_url,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": settings.france_travail_client_id,
-                "client_secret": settings.france_travail_client_secret,
-                "scope": "api_offresdemploiv2 o2dsoffre",
-            },
+            auth_url,
+            data=payload,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error("Échec auth France Travail (%s): %s", response.status_code, response.text)
+            response.raise_for_status()
+
         data = response.json()
 
     _token_cache["access_token"] = data["access_token"]
@@ -74,12 +81,28 @@ async def search_offers(
         response = await client.get(
             f"{settings.france_travail_base_url}/offres/search",
             params=params,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
             timeout=30.0,
         )
-        response.raise_for_status()
+        # 204 No Content = aucun résultat
+        if response.status_code == 204:
+            return {"resultats": [], "contentRange": {"maxResult": 0}}
 
-    return response.json()
+        # 206 Partial Content est normal (pagination par range)
+        if response.status_code not in (200, 206):
+            logger.error("Erreur recherche France Travail (%s): %s", response.status_code, response.text)
+            response.raise_for_status()
+
+    # Body vide => pas de résultats
+    text = response.text.strip()
+    if not text:
+        return {"resultats": [], "contentRange": {"maxResult": 0}}
+
+    try:
+        return response.json()
+    except ValueError:
+        logger.error("Réponse France Travail non JSON (%s): %s", response.status_code, response.text[:500])
+        return {"resultats": [], "contentRange": {"maxResult": 0}}
 
 
 async def get_offer_detail(offer_id: str) -> dict:
@@ -103,6 +126,13 @@ def normalize_offer(raw_offer: dict) -> dict:
     entreprise = raw_offer.get("entreprise", {})
     competences = raw_offer.get("competences", [])
 
+    publication_date = raw_offer.get("dateCreation")
+    if isinstance(publication_date, str):
+        try:
+            publication_date = datetime.fromisoformat(publication_date.replace("Z", "+00:00"))
+        except ValueError:
+            publication_date = None
+
     return {
         "api_source_id": raw_offer.get("id", ""),
         "title": raw_offer.get("intitule", ""),
@@ -113,7 +143,7 @@ def normalize_offer(raw_offer: dict) -> dict:
         "required_skills": [c.get("libelle", "") for c in competences if isinstance(c, dict)],
         "contract_type": raw_offer.get("typeContrat", ""),
         "experience_level": raw_offer.get("experienceExige", ""),
-        "publication_date": raw_offer.get("dateCreation"),
+        "publication_date": publication_date,
         "salary_info": raw_offer.get("salaire", {}).get("libelle", "") if isinstance(raw_offer.get("salaire"), dict) else "",
         "raw_data": raw_offer,
     }
