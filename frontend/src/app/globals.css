@@ -3,12 +3,29 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
+  --background: #f9fafb;
   --foreground: #171717;
+}
+
+.dark {
+  --background: #030712;
+  --foreground: #f9fafb;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Scrollbar dark mode */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
 }

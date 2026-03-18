@@ -108,21 +108,24 @@ async def compute_ai_matching(candidate_profile: str, job_offer: str) -> dict:
 EMAIL_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """Tu es un rédacteur professionnel spécialisé dans le recrutement intérimaire en France.
 Rédige un mail professionnel à destination de l'entreprise qui a publié l'offre d'emploi.
-Le mail doit proposer le candidat pour le poste.
+Le mail est envoyé par un chargé de recrutement d'une agence d'intérim pour proposer un candidat.
 
-Règles :
-- Ton professionnel et courtois
-- Factuel, basé uniquement sur les informations fournies
-- Pas d'invention ni d'hallucination
-- Structure : objet du mail, corps du mail
-- Le mail est envoyé par un chargé de recrutement d'une agence d'intérim
+RÈGLES STRICTES :
+- NE JAMAIS mentionner le nom, prénom, email, téléphone ou toute information d'identité du candidat.
+- Parler du candidat de manière anonyme : "notre candidat", "le profil que nous vous proposons", etc.
+- Le but est que l'entreprise passe par notre agence d'intérim pour rencontrer le candidat.
+- Inclure un appel à l'action invitant l'entreprise à nous contacter pour organiser un entretien.
+- Ton professionnel et courtois.
+- Factuel, basé uniquement sur les compétences et expériences fournies.
+- Pas d'invention ni d'hallucination.
+- Structure : objet du mail, corps du mail.
 
 Réponds en JSON strict :
 {{
   "subject": "Objet du mail",
   "body": "Corps complet du mail"
 }}"""),
-    ("human", """PROFIL CANDIDAT :
+    ("human", """COMPÉTENCES ET EXPÉRIENCE DU CANDIDAT (anonyme) :
 {candidate_profile}
 
 OFFRE D'EMPLOI :

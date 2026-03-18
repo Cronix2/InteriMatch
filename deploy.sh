@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
 # InteriMatch AI — Script de déploiement interactif (WSL / Linux)
+#
+# Usage: ./deploy.sh [OPTIONS]
+#   --mode <0|1|2>       Mode de déploiement (0=Docker, 1=Local, 2=Hybride)
+#   --reconfigure-env    Reconfigurer le fichier .env
+#   --build              Reconstruire les images Docker (mode Docker)
+#   --no-build           Ne pas reconstruire les images Docker
+#   --auto               Mode non-interactif (utilise les valeurs par défaut)
+#   -h, --help           Afficher l'aide
+#
+# Sans options, le script fonctionne en mode interactif.
 # =============================================================================
 set -euo pipefail
 
@@ -23,6 +33,9 @@ header()  { echo -e "\n${BOLD}${CYAN}═══ $* ═══${NC}\n"; }
 ask_yes_no() {
     local prompt="$1"
     local default="${2:-o}"
+    if [[ "$AUTO_MODE" -eq 1 ]]; then
+        [[ "$default" == "o" ]] && return 0 || return 1
+    fi
     local choices
     if [[ "$default" == "o" ]]; then choices="[O/n]"; else choices="[o/N]"; fi
     while true; do
@@ -40,6 +53,9 @@ ask_choice() {
     local prompt="$1"
     shift
     local options=("$@")
+    if [[ "$AUTO_MODE" -eq 1 ]]; then
+        return 0
+    fi
     echo -e "${YELLOW}▸${NC} ${prompt}"
     for i in "${!options[@]}"; do
         echo -e "  ${BOLD}$((i+1)))${NC} ${options[$i]}"
@@ -56,11 +72,79 @@ ask_choice() {
 ask_input() {
     local prompt="$1"
     local default="${2:-}"
+    if [[ "$AUTO_MODE" -eq 1 ]]; then
+        echo "$default"
+        return
+    fi
     local hint=""
     if [[ -n "$default" ]]; then hint=" (défaut: ${default})"; fi
     read -rp "$(echo -e "${YELLOW}▸${NC} ${prompt}${hint}: ")" value
     echo "${value:-$default}"
 }
+
+# ─── Parsing des arguments CLI ───────────────────────────────────────────────
+AUTO_MODE=0
+CLI_DEPLOY_MODE=""
+CLI_RECONFIG_ENV=""
+CLI_BUILD=""
+
+show_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options :"
+    echo "  --mode <0|1|2>       Mode de déploiement"
+    echo "                         0 = Docker Compose (recommandé)"
+    echo "                         1 = Local (Python venv + npm)"
+    echo "                         2 = Hybride (DB Docker + app locale)"
+    echo "  --reconfigure-env    Reconfigurer le fichier .env"
+    echo "  --build              Reconstruire les images Docker"
+    echo "  --no-build           Ne pas reconstruire les images Docker"
+    echo "  --auto               Mode non-interactif (valeurs par défaut)"
+    echo "  -h, --help           Afficher cette aide"
+    echo ""
+    echo "Exemples :"
+    echo "  $0                              # Mode interactif"
+    echo "  $0 --mode 0 --build             # Docker Compose avec rebuild"
+    echo "  $0 --mode 0 --no-build --auto   # Docker rapide, sans interaction"
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode)
+            if [[ -z "${2:-}" ]] || [[ ! "$2" =~ ^[012]$ ]]; then
+                error "--mode doit être 0, 1 ou 2"
+                exit 1
+            fi
+            CLI_DEPLOY_MODE="$2"
+            shift 2
+            ;;
+        --reconfigure-env)
+            CLI_RECONFIG_ENV="1"
+            shift
+            ;;
+        --build)
+            CLI_BUILD="1"
+            shift
+            ;;
+        --no-build)
+            CLI_BUILD="0"
+            shift
+            ;;
+        --auto)
+            AUTO_MODE=1
+            shift
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            error "Option inconnue : $1"
+            echo "Utilisez --help pour voir les options disponibles."
+            exit 1
+            ;;
+    esac
+done
 
 # ─── Détection du dossier projet ─────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -112,22 +196,36 @@ fi
 # ─── Mode de déploiement ─────────────────────────────────────────────────────
 header "Mode de déploiement"
 
-ask_choice "Comment voulez-vous déployer ?" \
-    "Docker Compose (recommandé — tout en conteneurs)" \
-    "Local (Python venv + npm — sans Docker pour backend/frontend)" \
-    "Docker uniquement DB + Redis, backend/frontend en local"
-DEPLOY_MODE=$?
+if [[ -n "$CLI_DEPLOY_MODE" ]]; then
+    DEPLOY_MODE=$CLI_DEPLOY_MODE
+    local_names=("Docker Compose" "Local" "Hybride")
+    info "Mode sélectionné via CLI : ${BOLD}${local_names[$DEPLOY_MODE]}${NC}"
+else
+    ask_choice "Comment voulez-vous déployer ?" \
+        "Docker Compose (recommandé — tout en conteneurs)" \
+        "Local (Python venv + npm — sans Docker pour backend/frontend)" \
+        "Docker uniquement DB + Redis, backend/frontend en local"
+    DEPLOY_MODE=$?
+fi
 
 # ─── Configuration .env ──────────────────────────────────────────────────────
 header "Configuration de l'environnement"
 
 if [[ -f .env ]]; then
-    warn "Un fichier .env existe déjà."
-    if ask_yes_no "Reconfigurer le .env ?" "n"; then
+    if [[ "$CLI_RECONFIG_ENV" == "1" ]]; then
         CONFIGURE_ENV=1
-    else
+        info "Reconfiguration du .env (option CLI)"
+    elif [[ "$AUTO_MODE" -eq 1 ]]; then
         CONFIGURE_ENV=0
-        success "Conservation du .env existant"
+        success "Conservation du .env existant (mode auto)"
+    else
+        warn "Un fichier .env existe déjà."
+        if ask_yes_no "Reconfigurer le .env ?" "n"; then
+            CONFIGURE_ENV=1
+        else
+            CONFIGURE_ENV=0
+            success "Conservation du .env existant"
+        fi
     fi
 else
     info "Pas de .env trouvé, création à partir du template."
@@ -194,7 +292,13 @@ echo ""
 deploy_docker_compose() {
     header "Déploiement Docker Compose"
 
-    if ask_yes_no "Reconstruire les images Docker (--build) ?" ; then
+    if [[ "$CLI_BUILD" == "1" ]]; then
+        BUILD_FLAG="--build"
+        info "Reconstruction des images (option CLI)"
+    elif [[ "$CLI_BUILD" == "0" ]]; then
+        BUILD_FLAG=""
+        info "Pas de reconstruction (option CLI)"
+    elif ask_yes_no "Reconstruire les images Docker (--build) ?" ; then
         BUILD_FLAG="--build"
     else
         BUILD_FLAG=""

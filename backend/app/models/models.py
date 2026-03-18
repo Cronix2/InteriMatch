@@ -40,6 +40,38 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
+    settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False)
+
+    first_name = Column(String(100), default="")
+    last_name = Column(String(100), default="")
+    company_name = Column(String(255), default="")
+    theme = Column(String(20), default="system")  # light, dark, system
+
+    # IA overrides
+    ai_api_key = Column(String(500), default="")
+    ai_model = Column(String(100), default="")
+    ai_base_url = Column(String(500), default="")
+    ai_temperature = Column(Float, nullable=True)
+
+    # France Travail overrides
+    france_travail_client_id = Column(String(255), default="")
+    france_travail_client_secret = Column(String(255), default="")
+
+    # 2FA
+    totp_enabled = Column(Boolean, default=False)
+    totp_secret = Column(String(255), nullable=True)
+
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+    user = relationship("User", back_populates="settings")
+
 
 # ─── Candidat ───────────────────────────────────────────────────────────────
 

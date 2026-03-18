@@ -172,3 +172,52 @@ class EmailUpdateRequest(BaseModel):
     subject: str | None = None
     body: str | None = None
     status: str | None = None
+
+
+# ─── User Settings ───────────────────────────────────────────────────────────
+
+class UserSettingsResponse(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    company_name: str = ""
+    theme: str = "system"
+    ai_model: str = ""
+    ai_base_url: str = ""
+    ai_temperature: float | None = None
+    ai_api_key_set: bool = False
+    france_travail_client_id: str = ""
+    france_travail_secret_set: bool = False
+    totp_enabled: bool = False
+
+class UserProfileResponse(BaseModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    role: str
+    settings: UserSettingsResponse
+    model_config = {"from_attributes": True}
+
+class UserSettingsUpdate(BaseModel):
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    company_name: str | None = None
+    theme: str | None = None
+    ai_api_key: str | None = None
+    ai_model: str | None = None
+    ai_base_url: str | None = None
+    ai_temperature: float | None = None
+    france_travail_client_id: str | None = None
+    france_travail_client_secret: str | None = None
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+class DashboardStatsResponse(BaseModel):
+    total_candidates: int = 0
+    total_matchings: int = 0
+    total_emails: int = 0
+    emails_validated: int = 0
+    average_score: float = 0.0
+    recent_matchings: list[dict] = []

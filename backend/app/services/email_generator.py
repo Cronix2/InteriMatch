@@ -11,31 +11,34 @@ logger = logging.getLogger(__name__)
 
 
 def _format_profile_for_email(profile: dict, candidate: dict) -> str:
-    """Met en forme le profil candidat pour la génération de mail."""
+    """Met en forme le profil candidat de façon ANONYME pour la génération de mail.
+    Aucune information personnelle (nom, email, tel) n'est transmise au LLM."""
     lines = []
-    name = f"{candidate.get('first_name', '')} {candidate.get('last_name', '')}".strip()
-    if name:
-        lines.append(f"Nom : {name}")
-    if candidate.get("email"):
-        lines.append(f"Email : {candidate['email']}")
-    if candidate.get("phone"):
-        lines.append(f"Téléphone : {candidate['phone']}")
     if candidate.get("location"):
-        lines.append(f"Localisation : {candidate['location']}")
+        lines.append(f"Zone géographique : {candidate['location']}")
     if candidate.get("availability"):
         lines.append(f"Disponibilité : {candidate['availability']}")
     if profile.get("profile_summary"):
-        lines.append(f"Résumé : {profile['profile_summary']}")
+        lines.append(f"Résumé du profil : {profile['profile_summary']}")
     if profile.get("skills"):
         lines.append(f"Compétences clés : {', '.join(profile['skills'][:10])}")
     if profile.get("years_of_experience"):
-        lines.append(f"Expérience : {profile['years_of_experience']} ans")
+        lines.append(f"Années d'expérience : {profile['years_of_experience']}")
     if profile.get("experiences"):
-        last_exp = profile["experiences"][0]
-        exp_str = last_exp.get("title", "")
-        if last_exp.get("company"):
-            exp_str += f" chez {last_exp['company']}"
-        lines.append(f"Dernier poste : {exp_str}")
+        exp_lines = []
+        for exp in profile["experiences"][:3]:
+            exp_str = exp.get("title", "")
+            if exp.get("duration"):
+                exp_str += f" ({exp['duration']})"
+            exp_lines.append(exp_str)
+        if exp_lines:
+            lines.append(f"Expériences récentes : {' | '.join(exp_lines)}")
+    if profile.get("education"):
+        edu_lines = []
+        for edu in profile["education"][:2]:
+            edu_lines.append(edu.get("diploma", ""))
+        if edu_lines:
+            lines.append(f"Formation : {', '.join(edu_lines)}")
     return "\n".join(lines)
 
 

@@ -53,10 +53,10 @@ export default function CVUpload({ onSuccess }: CVUploadProps) {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
           Importer un CV
         </h2>
-        <p className="text-gray-600">
+        <p className="text-gray-600 dark:text-gray-400">
           Déposez un CV au format PDF ou DOCX. L&apos;IA analysera
           automatiquement le contenu pour extraire le profil du candidat.
         </p>
@@ -66,10 +66,10 @@ export default function CVUpload({ onSuccess }: CVUploadProps) {
         {...getRootProps()}
         className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${
           isDragActive
-            ? "border-primary-500 bg-primary-50"
+            ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
             : loading
-            ? "border-gray-300 bg-gray-50 cursor-wait"
-            : "border-gray-300 hover:border-primary-400 hover:bg-gray-50"
+            ? "border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 cursor-wait"
+            : "border-gray-300 dark:border-gray-600 hover:border-primary-400 hover:bg-gray-50 dark:hover:bg-gray-800/50"
         }`}
       >
         <input {...getInputProps()} />
@@ -78,24 +78,24 @@ export default function CVUpload({ onSuccess }: CVUploadProps) {
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 text-primary-600 animate-spin" />
             <div>
-              <p className="text-lg font-medium text-gray-900">
+              <p className="text-lg font-medium text-gray-900 dark:text-white">
                 Analyse en cours...
               </p>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 Extraction du texte et analyse IA du CV
               </p>
             </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-4">
-            <Upload className="w-12 h-12 text-gray-400" />
+            <Upload className="w-12 h-12 text-gray-400 dark:text-gray-500" />
             <div>
-              <p className="text-lg font-medium text-gray-900">
+              <p className="text-lg font-medium text-gray-900 dark:text-white">
                 {isDragActive
                   ? "Déposez le fichier ici"
                   : "Glissez-déposez un CV ici"}
               </p>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 ou cliquez pour sélectionner un fichier (PDF, DOCX — max 10 Mo)
               </p>
             </div>
@@ -104,15 +104,15 @@ export default function CVUpload({ onSuccess }: CVUploadProps) {
       </div>
 
       {fileName && !loading && !error && (
-        <div className="mt-4 flex items-center gap-2 text-green-700 bg-green-50 rounded-lg p-3">
+        <div className="mt-4 flex items-center gap-2 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
           <CheckCircle className="w-5 h-5" />
           <span className="text-sm font-medium">{fileName} — analysé avec succès</span>
         </div>
       )}
 
       {error && (
-        <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
     </div>

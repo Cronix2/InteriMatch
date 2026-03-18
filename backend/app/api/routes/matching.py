@@ -256,6 +256,50 @@ async def compute_matching(
     return saved_results[: max(3, min(request.max_results, 10))]
 
 
+@router.get("/history", response_model=list[dict])
+async def get_all_matchings_history(
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Récupère l'historique complet des matchings avec infos candidat."""
+    result = await db.execute(
+        select(MatchingResult)
+        .options(
+            selectinload(MatchingResult.job_offer),
+            selectinload(MatchingResult.candidate),
+        )
+        .order_by(MatchingResult.computed_at.desc())
+        .limit(100)
+    )
+    matchings = result.scalars().all()
+    return [
+        {
+            "id": str(m.id),
+            "global_score": m.global_score,
+            "skills_score": m.skills_score,
+            "experience_score": m.experience_score,
+            "education_score": m.education_score,
+            "job_title_score": m.job_title_score,
+            "location_score": m.location_score,
+            "explanation": m.explanation,
+            "created_at": m.computed_at.isoformat() if m.computed_at else None,
+            "candidate": {
+                "id": str(m.candidate.id),
+                "first_name": m.candidate.first_name,
+                "last_name": m.candidate.last_name,
+            } if m.candidate else None,
+            "job_offer": {
+                "id": str(m.job_offer.id),
+                "title": m.job_offer.title,
+                "company_name": m.job_offer.company_name,
+                "location": m.job_offer.location,
+                "contract_type": m.job_offer.contract_type,
+            } if m.job_offer else None,
+        }
+        for m in matchings
+    ]
+
+
 @router.get("/candidate/{candidate_id}", response_model=list[MatchingResultResponse])
 async def get_candidate_matchings(
     candidate_id: uuid.UUID,

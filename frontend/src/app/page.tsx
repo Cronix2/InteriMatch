@@ -1,124 +1,106 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AuthScreen from "@/components/AuthScreen";
-import CVUpload from "@/components/CVUpload";
-import CandidateProfile from "@/components/CandidateProfile";
-import MatchingResults from "@/components/MatchingResults";
-import EmailPreview from "@/components/EmailPreview";
+import Sidebar, { type Page } from "@/components/Sidebar";
+import Dashboard from "@/components/Dashboard";
+import MatchFlow from "@/components/MatchFlow";
+import History from "@/components/History";
+import Settings from "@/components/Settings";
+import { getMe } from "@/lib/api";
 
-type Step = "upload" | "profile" | "matching" | "email";
+function applyThemeClass(theme: string) {
+  const root = document.documentElement;
+  if (theme === "dark") {
+    root.classList.add("dark");
+  } else if (theme === "light") {
+    root.classList.remove("dark");
+  } else {
+    // system
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }
+}
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [step, setStep] = useState<Step>("upload");
-  const [candidateId, setCandidateId] = useState<string | null>(null);
-  const [profileData, setProfileData] = useState<any>(null);
-  const [matchingResults, setMatchingResults] = useState<any[]>([]);
-  const [selectedMatch, setSelectedMatch] = useState<any>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [page, setPage] = useState<Page>("dashboard");
 
   useEffect(() => {
     const token = localStorage.getItem("interimatch_token");
-    if (token) setIsAuthenticated(true);
+    if (!token) {
+      setAuthChecked(true);
+      return;
+    }
+    // Vérifier la validité du token auprès du backend
+    getMe()
+      .then(() => setIsAuthenticated(true))
+      .catch((err) => {
+        if (err.response?.status === 401) {
+          localStorage.removeItem("interimatch_token");
+        } else {
+          // Erreur serveur (500, réseau…) : garder la session
+          setIsAuthenticated(true);
+        }
+      })
+      .finally(() => setAuthChecked(true));
+
+    // Appliquer le thème sauvé
+    const saved = localStorage.getItem("interimatch_theme") || "system";
+    applyThemeClass(saved);
+
+    // Écouter les changements système
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => {
+      if ((localStorage.getItem("interimatch_theme") || "system") === "system") {
+        applyThemeClass("system");
+      }
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  const handleThemeChange = useCallback((theme: string) => {
+    localStorage.setItem("interimatch_theme", theme);
+    applyThemeClass(theme);
   }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("interimatch_token");
     setIsAuthenticated(false);
-    setStep("upload");
-    setCandidateId(null);
-    setProfileData(null);
-    setMatchingResults([]);
-    setSelectedMatch(null);
+    setPage("dashboard");
   };
+
+  if (!authChecked) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-gray-950">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
   }
 
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">IM</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">
-                InteriMatch AI
-              </h1>
-              <p className="text-xs text-gray-500">
-                Matching CV / Offres d&apos;emploi
-              </p>
-            </div>
-          </div>
-          <nav className="flex gap-1">
-            {[
-              { key: "upload", label: "1. Upload CV" },
-              { key: "profile", label: "2. Profil" },
-              { key: "matching", label: "3. Matching" },
-              { key: "email", label: "4. Email" },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setStep(key as Step)}
-                disabled={
-                  (key === "profile" && !candidateId) ||
-                  (key === "matching" && !profileData) ||
-                  (key === "email" && !selectedMatch)
-                }
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  step === key
-                    ? "bg-primary-600 text-white"
-                    : "text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <button
-            onClick={handleLogout}
-            className="ml-4 px-3 py-1.5 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-          >
-            Déconnexion
-          </button>
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-950">
+      <Sidebar
+        currentPage={page}
+        onNavigate={setPage}
+        onLogout={handleLogout}
+      />
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          {page === "dashboard" && <Dashboard />}
+          {page === "match" && <MatchFlow />}
+          {page === "history" && <History />}
+          {page === "settings" && <Settings onThemeChange={handleThemeChange} />}
         </div>
-      </header>
-
-      {/* Contenu principal */}
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {step === "upload" && (
-          <CVUpload
-            onSuccess={(data) => {
-              setCandidateId(data.candidate.id);
-              setProfileData(data.extracted_profile);
-              setStep("profile");
-            }}
-          />
-        )}
-        {step === "profile" && profileData && (
-          <CandidateProfile
-            profile={profileData}
-            onNext={() => setStep("matching")}
-          />
-        )}
-        {step === "matching" && candidateId && (
-          <MatchingResults
-            candidateId={candidateId}
-            results={matchingResults}
-            onResultsLoaded={setMatchingResults}
-            onSelectMatch={(match) => {
-              setSelectedMatch(match);
-              setStep("email");
-            }}
-          />
-        )}
-        {step === "email" && selectedMatch && (
-          <EmailPreview matchingResultId={selectedMatch.id} />
-        )}
       </main>
     </div>
   );

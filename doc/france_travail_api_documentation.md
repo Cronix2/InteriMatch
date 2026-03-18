@@ -10,7 +10,7 @@ Les réponses sont retournées au format **JSON** et l’API fonctionne selon un
 
 ---
 
-# Authentification
+### Authentification
 
 L’accès à l’API nécessite généralement :
 
@@ -20,40 +20,40 @@ L’accès à l’API nécessite généralement :
 
 Exemple d’en-tête :
 
-```
+```txt
 Authorization: Bearer <access_token>
 ```
 
 ---
 
-# Recherche d'offres
+### Recherche d'offres
 
-## Endpoint
+#### Endpoint
 
-```
+```txt
 GET /offres/search
 ```
 
-## Paramètres
+#### Paramètres
 
-| Paramètre | Description |
-|----------|-------------|
-| motsCles | mot-clé recherché |
-| commune | ville |
-| departement | département |
-| region | région |
-| typeContrat | type de contrat (CDI, CDD, etc.) |
-| experience | niveau d'expérience |
-| distance | distance autour d’une localisation |
-| page | pagination |
+| Paramètre   | Description                        |
+|-------------|------------------------------------|
+| motsCles    | mot-clé recherché                  |
+| commune     | ville                              |
+| departement | département                        |
+| region      | région                             |
+| typeContrat | type de contrat (CDI, CDD, etc.)   |
+| experience  | niveau d'expérience                |
+| distance    | distance autour d’une localisation |
+| page        | pagination                         |
 
-## Exemple de requête
+#### Exemple de requête
 
-```
+```txt
 GET /offres/search?motsCles=developpeur&commune=Paris
 ```
 
-## Exemple de réponse
+#### Exemple de réponse
 
 ```json
 {
@@ -78,21 +78,21 @@ GET /offres/search?motsCles=developpeur&commune=Paris
 
 ---
 
-# Détail d'une offre
+### Détail d'une offre
 
-## Endpoint
+#### Endpoint 1
 
-```
+```txt
 GET /offres/{id}
 ```
 
-## Exemple
+#### Exemple
 
-```
+```txt
 GET /offres/123456
 ```
 
-## Exemple de réponse
+#### Exemple de réponse 1
 
 ```json
 {
@@ -113,34 +113,34 @@ GET /offres/123456
 
 ---
 
-# Référentiels
+### Référentiels
 
 L’API propose plusieurs référentiels utiles pour filtrer les résultats.
 
-## Endpoint
+#### Endpoint 2
 
-```
+```txt
 GET /referentiels/{type}
 ```
 
-## Référentiels disponibles
+#### Référentiels disponibles
 
-| Référentiel | Description |
-|-------------|-------------|
-| metiers | métiers (ROME) |
-| contrats | types de contrats |
-| secteurs | secteurs d’activité |
-| lieux | informations géographiques |
+| Référentiel | Description                |
+|-------------|----------------------------|
+| metiers     | métiers (ROME)             |
+| contrats    | types de contrats          |
+| secteurs    | secteurs d’activité        |
+| lieux       | informations géographiques |
 
 ---
 
-# Pagination
+### Pagination
 
 Les résultats sont paginés.
 
 Exemple :
 
-```
+```txt
 GET /offres/search?page=2
 ```
 
@@ -156,18 +156,18 @@ Structure :
 
 ---
 
-# Codes d'erreur
+### Codes d'erreur
 
-| Code | Signification |
-|-----|---------------|
-| 400 | Requête invalide |
-| 401 | Authentification requise |
-| 404 | Ressource introuvable |
-| 500 | Erreur serveur |
+| Code | Signification            |
+|------|--------------------------|
+| 400  | Requête invalide         |
+| 401  | Authentification requise |
+| 404  | Ressource introuvable    |
+| 500  | Erreur serveur           |
 
 ---
 
-# Bonnes pratiques
+### Bonnes pratiques
 
 - Mettre en cache les résultats pour limiter les appels API.
 - Implémenter une gestion d’erreur robuste.
@@ -175,7 +175,7 @@ Structure :
 
 ---
 
-# Ressources
+### Ressources
 
 Plateforme développeur :  
-https://francetravail.io
+<https://francetravail.io>
