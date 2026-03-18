@@ -76,6 +76,12 @@ async def lifespan(app: FastAPI):
                     " processing_status VARCHAR(20) DEFAULT 'pending'"
                 )
             )
+            await conn.execute(
+                text(
+                    "ALTER TABLE generated_emails ADD COLUMN IF NOT EXISTS"
+                    " recruiter_email VARCHAR(255)"
+                )
+            )
         logger.info("Base de données initialisée")
     except Exception as e:
         logger.error("Impossible de se connecter à la base de données : %s", e)
@@ -99,10 +105,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=[o.strip() for o in app_settings.cors_origins.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

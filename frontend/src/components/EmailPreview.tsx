@@ -9,12 +9,14 @@ import {
   Copy,
   ExternalLink,
   Download,
+  AlertTriangle,
 } from "lucide-react";
-import { generateEmail, updateEmail, getMe, downloadAnonymizedCV } from "@/lib/api";
+import { generateEmail, updateEmail, getMe, downloadAnonymizedCV, lookupRecruiter } from "@/lib/api";
 
 interface EmailPreviewProps {
   matchingResultId: string;
   candidateId?: string;
+  jobOfferId?: string;
 }
 
 function replaceSenderPlaceholders(
@@ -68,6 +70,7 @@ function replaceSenderPlaceholders(
 export default function EmailPreview({
   matchingResultId,
   candidateId,
+  jobOfferId,
 }: EmailPreviewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +79,8 @@ export default function EmailPreview({
   const [editSubject, setEditSubject] = useState("");
   const [editBody, setEditBody] = useState("");
   const [copied, setCopied] = useState(false);
+  const [recruiterEmail, setRecruiterEmail] = useState<string | null>(null);
+  const [cvDownloaded, setCvDownloaded] = useState(false);
   const generatedForIdRef = useRef<string | null>(null);
   const senderInfoRef = useRef<{
     firstName: string;
@@ -126,6 +131,17 @@ export default function EmailPreview({
       try {
         const response = await generateEmail(matchingResultId);
         setEmailData(response.data);
+        // Recruiter email: from backend response or fallback to lookup
+        let rEmail = response.data.recruiter_email || null;
+        if (!rEmail && jobOfferId) {
+          try {
+            const rRes = await lookupRecruiter(jobOfferId);
+            rEmail = rRes.data.contact?.contact_email || null;
+          } catch {
+            // silently fail
+          }
+        }
+        setRecruiterEmail(rEmail);
         const { firstName, lastName, company, agencyPhone, agencyEmail, agencyAddress } = senderInfoRef.current;
         setEditSubject(
           replaceSenderPlaceholders(response.data.subject, firstName, lastName, company, agencyPhone, agencyEmail, agencyAddress)
@@ -167,10 +183,29 @@ export default function EmailPreview({
       });
       setEmailData(response.data);
 
-      // Open default mail client with pre-filled content
+      // Auto-download the anonymized CV
+      if (candidateId) {
+        try {
+          const res = await downloadAnonymizedCV(candidateId);
+          const url = window.URL.createObjectURL(new Blob([res.data]));
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "cv_anonymise.pdf";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          setCvDownloaded(true);
+        } catch {
+          // CV download failed silently
+        }
+      }
+
+      // Open default mail client with recruiter email pre-filled
+      const to = recruiterEmail ? encodeURIComponent(recruiterEmail) : "";
       const subject = encodeURIComponent(editSubject);
       const body = encodeURIComponent(editBody);
-      window.location.href = `mailto:?subject=${subject}&body=${body}`;
+      window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
     } catch {
       setError("Erreur lors de la validation");
     }
@@ -239,9 +274,10 @@ export default function EmailPreview({
               </span>
               <button
                 onClick={() => {
+                  const to = recruiterEmail ? encodeURIComponent(recruiterEmail) : "";
                   const subject = encodeURIComponent(editSubject);
                   const body = encodeURIComponent(editBody);
-                  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                  window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
                 }}
                 className="flex items-center gap-1 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 transition-colors font-medium"
               >
@@ -285,6 +321,21 @@ export default function EmailPreview({
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        {/* Destinataire */}
+        <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
+            Destinataire
+          </label>
+          {recruiterEmail ? (
+            <p className="text-gray-900 dark:text-white font-medium">{recruiterEmail}</p>
+          ) : (
+            <p className="text-amber-600 dark:text-amber-400 text-sm flex items-center gap-1">
+              <AlertTriangle className="w-4 h-4" />
+              Email du recruteur non trouvé — il sera à renseigner manuellement
+            </p>
+          )}
+        </div>
+
         {/* Objet */}
         <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-4">
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
@@ -332,6 +383,16 @@ export default function EmailPreview({
           </div>
         )}
       </div>
+
+      {/* Notice CV auto-download */}
+      {cvDownloaded && (
+        <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3">
+          <p className="text-sm text-blue-700 dark:text-blue-400 flex items-center gap-2">
+            <Download className="w-4 h-4" />
+            Le CV anonymisé a été téléchargé — pensez à le joindre à votre mail.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

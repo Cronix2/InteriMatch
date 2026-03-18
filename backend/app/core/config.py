@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     app_port: int = 8000
 
     # --- Base de données ---
-    database_url: str = "postgresql+asyncpg://interimatch:interimatch@localhost:5432/interimatch"
+    database_url: str = ""
 
     # --- Redis ---
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = ""
 
     # --- IA / LLM ---
     ai_model: str = "alfred-4.2"
@@ -35,9 +35,12 @@ class Settings(BaseSettings):
     france_travail_auth_url: str = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
 
     # --- JWT / Sécurité ---
-    secret_key: str = "CHANGEZ-MOI-EN-PRODUCTION"
+    secret_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
+
+    # --- CORS ---
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # --- Upload ---
     max_upload_size: int = 10_485_760  # 10 Mo

@@ -201,6 +201,7 @@ class GeneratedEmail(Base):
 
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
+    recruiter_email = Column(String(255), nullable=True)
     status = Column(String(50), default="draft")  # draft, validated, sent
     generated_at = Column(DateTime(timezone=True), default=utcnow)
     validated_at = Column(DateTime(timezone=True), nullable=True)

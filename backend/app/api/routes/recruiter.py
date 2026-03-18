@@ -3,6 +3,7 @@ InteriMatch AI - Routes Recherche de recruteur
 Extrait les informations de contact du recruteur depuis les données brutes France Travail.
 """
 
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,6 +15,14 @@ from app.core.security import get_current_user
 from app.models.models import JobOffer
 
 router = APIRouter()
+
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+
+
+def _extract_email_from_text(text: str) -> str | None:
+    """Recherche une adresse email dans une chaîne de texte libre."""
+    match = _EMAIL_RE.search(text)
+    return match.group(0) if match else None
 
 
 def _extract_contact_from_raw(raw_data: dict | None) -> dict:
@@ -34,13 +43,35 @@ def _extract_contact_from_raw(raw_data: dict | None) -> dict:
             result["contact_email"] = contact["courriel"]
         if contact.get("telephone"):
             result["contact_phone"] = contact["telephone"]
-        if contact.get("coordonnees1"):
-            result["contact_info"] = contact["coordonnees1"]
-        if contact.get("coordonnees2"):
-            extra = result.get("contact_info", "")
-            result["contact_info"] = f"{extra} — {contact['coordonnees2']}".strip(" —")
+
+        # coordonnees1/2 contiennent parfois l'email en texte libre
+        coord1 = contact.get("coordonnees1", "")
+        coord2 = contact.get("coordonnees2", "")
+        coord_parts = []
+        if coord1:
+            coord_parts.append(coord1)
+        if coord2:
+            coord_parts.append(coord2)
+        if coord_parts:
+            result["contact_info"] = " — ".join(coord_parts)
+
+        # Si pas d'email trouvé dans courriel, chercher dans coordonnées
+        if not result.get("contact_email"):
+            for coord in (coord1, coord2):
+                if coord:
+                    found = _extract_email_from_text(coord)
+                    if found:
+                        result["contact_email"] = found
+                        break
+
         if contact.get("urlPostulation"):
             result["application_url"] = contact["urlPostulation"]
+            # urlPostulation peut être un mailto:
+            url_post = contact["urlPostulation"]
+            if not result.get("contact_email") and url_post.startswith("mailto:"):
+                email_part = url_post[7:].split("?")[0]
+                if _EMAIL_RE.fullmatch(email_part):
+                    result["contact_email"] = email_part
 
     # Infos entreprise
     if isinstance(entreprise, dict):
@@ -55,6 +86,13 @@ def _extract_contact_from_raw(raw_data: dict | None) -> dict:
         if isinstance(origine, dict):
             if origine.get("urlOrigine"):
                 result["source_url"] = origine["urlOrigine"]
+                # urlOrigine peut aussi être un mailto:
+                if not result.get("contact_email"):
+                    url_orig = origine["urlOrigine"]
+                    if url_orig.startswith("mailto:"):
+                        email_part = url_orig[7:].split("?")[0]
+                        if _EMAIL_RE.fullmatch(email_part):
+                            result["contact_email"] = email_part
             if origine.get("origine"):
                 result["source"] = origine["origine"]
 

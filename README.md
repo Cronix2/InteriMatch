@@ -56,27 +56,34 @@
 - Docker & Docker Compose
 - (ou) Python 3.12+ et Node.js 20+ pour le dev local
 
-### 1. Configuration
+### Installation
+
+#### 1. Cloner le dépôt
+
+```bash
+git clone <url-du-repo>
+cd InteriMatch
+```
+
+#### 2. Configurer les variables d'environnement
 
 ```bash
 cp .env.example .env
 # Éditez .env avec vos clés :
+# - DATABASE_URL, REDIS_URL (si dev local sans Docker)
+# - SECRET_KEY (chaîne aléatoire — openssl rand -hex 32)
 # - AI_API_KEY (si nécessaire)
-# - FRANCE_TRAVAIL_CLIENT_ID et SECRET
-# - SECRET_KEY (pour JWT)
+# - FRANCE_TRAVAIL_CLIENT_ID et FRANCE_TRAVAIL_CLIENT_SECRET
+# - CORS_ORIGINS (origines autorisées, ex: http://localhost:3000)
 ```
 
-### 2. Lancement avec Docker
+### Lancement avec Docker
 
 ```bash
 docker compose up -d
 ```
 
-- **Frontend** : [http://localhost:3000](http://localhost:3000)
-- **Backend API** : [http://localhost:8000](http://localhost:8000)
-- **Swagger docs** : [http://localhost:8000/docs](http://localhost:8000/docs)
-
-### 3. Lancement en dev local (sans Docker)
+### Lancement en dev local (sans Docker)
 
 **Backend :**
 
@@ -97,6 +104,22 @@ npm install
 npm run dev
 ```
 
+### Usage
+
+Une fois lancée, l'application est accessible sur :
+
+- **Frontend** : <http://localhost:3000>
+- **Backend API** : <http://localhost:8000>
+- **Documentation Swagger** : <http://localhost:8000/docs> (accessible uniquement quand le backend tourne)
+
+Workflow typique :
+
+1. Créer un compte ou se connecter
+2. Uploadez un ou plusieurs CV (PDF/DOCX) — l'IA extrait le profil automatiquement
+3. Lancez un matching : l'IA recherche les offres France Travail compatibles
+4. Sélectionnez un match et générez un mail de proposition professionnel
+5. Validez, le CV anonymisé est téléchargé automatiquement et le mail s'ouvre dans votre messagerie
+
 ---
 
 ## Structure du projet
@@ -105,6 +128,7 @@ npm run dev
 InteriMatch/
 ├── .env.example                 # Variables d'environnement
 ├── docker-compose.yml           # Orchestration Docker
+├── CHANGELOG.md                 # Journal des modifications
 ├── LICENSE                      # Licence propriétaire
 │
 ├── backend/
@@ -128,11 +152,16 @@ InteriMatch/
 │       │   └── email_generator.py
 │       └── api/routes/
 │           ├── auth.py          # Inscription / connexion
+│           ├── two_factor.py    # 2FA (TOTP)
 │           ├── candidates.py    # CRUD candidats
 │           ├── cv.py            # Upload & parsing CV
 │           ├── job_offers.py    # Recherche offres
 │           ├── matching.py      # Calcul de matching
-│           └── emails.py        # Génération emails
+│           ├── emails.py        # Génération emails
+│           ├── recruiter.py     # Lookup recruteur
+│           ├── bulk_upload.py   # Upload groupé (ZIP)
+│           ├── dashboard.py     # Statistiques & métriques
+│           └── settings.py      # Paramètres utilisateur
 │
 └── frontend/
     ├── Dockerfile
@@ -140,12 +169,17 @@ InteriMatch/
     └── src/
         ├── app/
         │   ├── layout.tsx
-        │   └── page.tsx         # Workflow en 4 étapes
+        │   └── page.tsx
         ├── components/
+        │   ├── AuthScreen.tsx
+        │   ├── Sidebar.tsx
+        │   ├── Dashboard.tsx
+        │   ├── CVPipeline.tsx     # Pipeline matching complet
         │   ├── CVUpload.tsx
         │   ├── CandidateProfile.tsx
         │   ├── MatchingResults.tsx
-        │   └── EmailPreview.tsx
+        │   ├── EmailPreview.tsx
+        │   └── Settings.tsx
         └── lib/
             └── api.ts           # Client API axios
 ```
@@ -154,18 +188,30 @@ InteriMatch/
 
 ## API Endpoints
 
-| Méthode  | Route                             | Description                       |
-| -------- | --------------------------------- | --------------------------------- |
-| POST     | `/api/v1/auth/register`           | Inscription                       |
-| POST     | `/api/v1/auth/login`              | Connexion (retourne JWT)          |
-| POST     | `/api/v1/cv/upload`               | Upload et analyse d'un CV         |
-| GET      | `/api/v1/cv/profile/{resume_id}`  | Profil extrait d'un CV            |
-| GET      | `/api/v1/candidates/`             | Liste des candidats               |
-| POST     | `/api/v1/job-offers/search`       | Recherche offres France Travail   |
-| POST     | `/api/v1/matching/compute`        | Lance le matching candidat/offres |
-| GET      | `/api/v1/matching/candidate/{id}` | Résultats de matching             |
-| POST     | `/api/v1/emails/generate`         | Génère un email                   |
-| PUT      | `/api/v1/emails/{id}`             | Édite / valide un email           |
+| Méthode  | Route                                     | Description                       |
+| -------- | ----------------------------------------- | --------------------------------- |
+| POST     | `/api/v1/auth/register`                   | Inscription                       |
+| POST     | `/api/v1/auth/login`                      | Connexion (retourne JWT)          |
+| POST     | `/api/v1/auth/2fa/setup`                  | Initialiser la 2FA (TOTP)         |
+| POST     | `/api/v1/auth/2fa/verify`                 | Vérifier et activer la 2FA        |
+| POST     | `/api/v1/auth/2fa/disable`                | Désactiver la 2FA                 |
+| POST     | `/api/v1/cv/upload`                       | Upload et analyse d'un CV         |
+| GET      | `/api/v1/cv/profile/{resume_id}`          | Profil extrait d'un CV            |
+| GET      | `/api/v1/cv/candidate/{id}/anonymized-cv` | Télécharger le CV anonymisé       |
+| GET      | `/api/v1/candidates/`                     | Liste des candidats               |
+| GET      | `/api/v1/candidates/pipeline`             | Candidats avec statut pipeline    |
+| POST     | `/api/v1/job-offers/search`               | Recherche offres France Travail   |
+| POST     | `/api/v1/matching/compute`                | Lance le matching candidat/offres |
+| GET      | `/api/v1/matching/candidate/{id}`         | Résultats de matching             |
+| GET      | `/api/v1/matching/history`                | Historique des matchings          |
+| POST     | `/api/v1/emails/generate`                 | Génère un email                   |
+| PUT      | `/api/v1/emails/{id}`                     | Édite / valide un email           |
+| GET      | `/api/v1/recruiter/job/{id}`              | Lookup contact recruteur          |
+| POST     | `/api/v1/bulk-upload/upload-zip`          | Upload groupé de CVs (ZIP)        |
+| GET      | `/api/v1/dashboard/stats`                 | Statistiques du tableau de bord   |
+| GET      | `/api/v1/dashboard/api-metrics`           | Métriques d'utilisation API       |
+| GET      | `/api/v1/settings/me`                     | Paramètres utilisateur            |
+| PUT      | `/api/v1/settings/me`                     | Mettre à jour les paramètres      |
 
 ---
 

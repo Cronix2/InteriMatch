@@ -144,6 +144,21 @@ export default function CVUpload({ onSuccess, onStartMatching }: CVUploadProps) 
     ? Math.round((bulkJob.processed_files / Math.max(bulkJob.total_files, 1)) * 100)
     : 0;
 
+  const handlePauseBulk = async () => {
+    if (!bulkJob) return;
+    try { await pauseBulkJob(bulkJob.id); setBulkJob({ ...bulkJob, status: "paused" }); } catch {}
+  };
+
+  const handleResumeBulk = async () => {
+    if (!bulkJob) return;
+    try { await resumeBulkJob(bulkJob.id); setBulkJob({ ...bulkJob, status: "processing" }); } catch {}
+  };
+
+  const handleCancelBulk = async () => {
+    if (!bulkJob) return;
+    try { await cancelBulkJob(bulkJob.id); setBulkJob({ ...bulkJob, status: "cancelled" }); } catch {}
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="text-center mb-6">
@@ -270,9 +285,7 @@ export default function CVUpload({ onSuccess, onStartMatching }: CVUploadProps) 
                 <>
                   {bulkJob.status === "processing" ? (
                     <button
-                      onClick={async () => {
-                        try { await pauseBulkJob(bulkJob.id); setBulkJob({ ...bulkJob, status: "paused" }); } catch {}
-                      }}
+                      onClick={handlePauseBulk}
                       className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
                       title="Mettre en pause"
                     >
@@ -280,9 +293,7 @@ export default function CVUpload({ onSuccess, onStartMatching }: CVUploadProps) 
                     </button>
                   ) : (
                     <button
-                      onClick={async () => {
-                        try { await resumeBulkJob(bulkJob.id); setBulkJob({ ...bulkJob, status: "processing" }); } catch {}
-                      }}
+                      onClick={handleResumeBulk}
                       className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
                       title="Reprendre"
                     >
@@ -290,9 +301,7 @@ export default function CVUpload({ onSuccess, onStartMatching }: CVUploadProps) 
                     </button>
                   )}
                   <button
-                    onClick={async () => {
-                      try { await cancelBulkJob(bulkJob.id); setBulkJob({ ...bulkJob, status: "cancelled" }); } catch {}
-                    }}
+                    onClick={handleCancelBulk}
                     className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                     title="Arrêter"
                   >

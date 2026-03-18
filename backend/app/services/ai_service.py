@@ -6,6 +6,7 @@ Centralise tous les appels au LLM.
 import time
 import logging
 import uuid
+from dataclasses import dataclass, field
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,6 +18,18 @@ from app.models.models import ApiUsageLog
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ApiUsageEntry:
+    service: str
+    action: str
+    latency_ms: int
+    success: bool
+    error_message: str | None = None
+    tokens_input: int = 0
+    tokens_output: int = 0
+    user_id: str | None = None
 
 
 def get_llm() -> ChatOpenAI:
@@ -31,31 +44,21 @@ def get_llm() -> ChatOpenAI:
     )
 
 
-async def _log_api_usage(
-    service: str,
-    action: str,
-    latency_ms: int,
-    success: bool,
-    error_message: str | None = None,
-    tokens_input: int = 0,
-    tokens_output: int = 0,
-    user_id: str | None = None,
-):
+async def _log_api_usage(entry: ApiUsageEntry):
     """Enregistre une utilisation d'API dans la base."""
     try:
-        # Estimation du coût (basique, à ajuster selon le provider)
-        estimated_cost = (tokens_input * 0.00001) + (tokens_output * 0.00003)
+        estimated_cost = (entry.tokens_input * 0.00001) + (entry.tokens_output * 0.00003)
         async with async_session() as db:
             log = ApiUsageLog(
-                user_id=uuid.UUID(user_id) if user_id else None,
-                service=service,
-                action=action,
-                tokens_input=tokens_input,
-                tokens_output=tokens_output,
-                latency_ms=latency_ms,
+                user_id=uuid.UUID(entry.user_id) if entry.user_id else None,
+                service=entry.service,
+                action=entry.action,
+                tokens_input=entry.tokens_input,
+                tokens_output=entry.tokens_output,
+                latency_ms=entry.latency_ms,
                 estimated_cost=round(estimated_cost, 6),
-                success=success,
-                error_message=error_message,
+                success=entry.success,
+                error_message=entry.error_message,
             )
             db.add(log)
             await db.commit()
@@ -106,13 +109,12 @@ async def extract_cv_profile(cv_text: str, user_id: str | None = None) -> dict:
     try:
         result = await chain.ainvoke({"cv_text": cv_text})
         latency = int((time.monotonic() - start) * 1000)
-        tokens_in = len(cv_text) // 4  # estimation grossière
-        tokens_out = 500  # estimation pour l'extraction
-        await _log_api_usage("ai", "extract_cv", latency, True, tokens_input=tokens_in, tokens_output=tokens_out, user_id=user_id)
+        tokens_in = len(cv_text) // 4
+        await _log_api_usage(ApiUsageEntry("ai", "extract_cv", latency, True, tokens_input=tokens_in, tokens_output=500, user_id=user_id))
         return result
     except Exception as e:
         latency = int((time.monotonic() - start) * 1000)
-        await _log_api_usage("ai", "extract_cv", latency, False, error_message=str(e)[:200], user_id=user_id)
+        await _log_api_usage(ApiUsageEntry("ai", "extract_cv", latency, False, error_message=str(e)[:200], user_id=user_id))
         raise
 
 
@@ -156,12 +158,11 @@ async def compute_ai_matching(candidate_profile: str, job_offer: str, user_id: s
         })
         latency = int((time.monotonic() - start) * 1000)
         tokens_in = (len(candidate_profile) + len(job_offer)) // 4
-        tokens_out = 300
-        await _log_api_usage("ai", "matching", latency, True, tokens_input=tokens_in, tokens_output=tokens_out, user_id=user_id)
+        await _log_api_usage(ApiUsageEntry("ai", "matching", latency, True, tokens_input=tokens_in, tokens_output=300, user_id=user_id))
         return result
     except Exception as e:
         latency = int((time.monotonic() - start) * 1000)
-        await _log_api_usage("ai", "matching", latency, False, error_message=str(e)[:200], user_id=user_id)
+        await _log_api_usage(ApiUsageEntry("ai", "matching", latency, False, error_message=str(e)[:200], user_id=user_id))
         raise
 
 
@@ -240,10 +241,9 @@ async def generate_email(
         latency = int((time.monotonic() - start) * 1000)
         total_input = len(candidate_profile) + len(job_description) + len(agency_info) + len(email_template)
         tokens_in = total_input // 4
-        tokens_out = 600
-        await _log_api_usage("ai", "generate_email", latency, True, tokens_input=tokens_in, tokens_output=tokens_out, user_id=user_id)
+        await _log_api_usage(ApiUsageEntry("ai", "generate_email", latency, True, tokens_input=tokens_in, tokens_output=600, user_id=user_id))
         return result
     except Exception as e:
         latency = int((time.monotonic() - start) * 1000)
-        await _log_api_usage("ai", "generate_email", latency, False, error_message=str(e)[:200], user_id=user_id)
+        await _log_api_usage(ApiUsageEntry("ai", "generate_email", latency, False, error_message=str(e)[:200], user_id=user_id))
         raise

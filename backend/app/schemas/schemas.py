@@ -161,6 +161,7 @@ class GeneratedEmailResponse(BaseModel):
     matching_result_id: uuid.UUID
     subject: str
     body: str
+    recruiter_email: str | None = None
     status: str
     generated_at: datetime
     validated_at: datetime | None

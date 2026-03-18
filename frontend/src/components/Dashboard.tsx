@@ -347,10 +347,11 @@ export default function Dashboard() {
                 Appels API — 7 derniers jours
               </h4>
               <div className="flex items-end gap-2 h-32">
-                {metrics.daily.map((d) => {
-                  const maxCalls = Math.max(...metrics.daily.map((x) => x.calls), 1);
-                  const height = Math.max((d.calls / maxCalls) * 100, 4);
-                  return (
+                {(() => {
+                  const peakCalls = Math.max(...metrics.daily.map((x) => x.calls), 1);
+                  return metrics.daily.map((d) => {
+                    const height = Math.max((d.calls / peakCalls) * 100, 4);
+                    return (
                     <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
                       <span className="text-xs text-gray-500 dark:text-gray-400">{d.calls}</span>
                       <div
@@ -362,7 +363,8 @@ export default function Dashboard() {
                       </span>
                     </div>
                   );
-                })}
+                });
+                })()}
               </div>
             </div>
           )}

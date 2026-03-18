@@ -89,6 +89,10 @@ export default function CVPipeline() {
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const silentUpdateStatus = async (id: string, status: string) => {
+    try { await updateCandidateStatus(id, status); } catch { /* non-blocking */ }
+  };
+
   const loadCandidates = useCallback(async () => {
     try {
       const res = await listPipelineCandidates();
@@ -136,11 +140,7 @@ export default function CVPipeline() {
     }
 
     // Update status to matching
-    try {
-      await updateCandidateStatus(candidate.id, "matching");
-    } catch {
-      // ignore
-    }
+    await silentUpdateStatus(candidate.id, "matching");
 
     setView("matching");
   };
@@ -159,22 +159,14 @@ export default function CVPipeline() {
   const handleGoToEmail = async (match: any) => {
     setSelectedMatch(match);
     if (candidateId) {
-      try {
-        await updateCandidateStatus(candidateId, "email");
-      } catch {
-        // ignore
-      }
+      await silentUpdateStatus(candidateId, "email");
     }
     setView("email");
   };
 
   const handleMarkCompleted = async () => {
     if (candidateId) {
-      try {
-        await updateCandidateStatus(candidateId, "completed");
-      } catch {
-        // ignore
-      }
+      await silentUpdateStatus(candidateId, "completed");
     }
     await handleBackToTable();
   };
@@ -296,6 +288,7 @@ export default function CVPipeline() {
           <EmailPreview
             matchingResultId={selectedMatch.id}
             candidateId={candidateId || undefined}
+            jobOfferId={selectedMatch.job_offer?.id}
           />
         )}
       </div>

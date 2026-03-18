@@ -31,6 +31,7 @@ from app.schemas.schemas import (
 )
 from app.services.email_generator import generate_candidate_email
 from app.api.deps import get_current_user_db
+from app.api.routes.recruiter import _extract_contact_from_raw
 
 router = APIRouter()
 
@@ -124,11 +125,16 @@ async def generate_email(
         user_id=str(user.id),
     )
 
+    # Extraire l'email du recruteur depuis les données brutes de l'offre
+    recruiter_contact = _extract_contact_from_raw(match.job_offer.raw_data if hasattr(match.job_offer, "raw_data") else None)
+    recruiter_email_addr = recruiter_contact.get("contact_email")
+
     # Sauvegarder
     generated_email = GeneratedEmail(
         matching_result_id=match.id,
         subject=email_data["subject"],
         body=email_data["body"],
+        recruiter_email=recruiter_email_addr,
         status="draft",
     )
     db.add(generated_email)
