@@ -18,10 +18,12 @@ from app.models.models import (
     ExtractedProfile,
     JobOffer,
     MatchingResult,
+    SentProposal,
 )
 from app.schemas.schemas import MatchingRequest, MatchingResultResponse
 from app.services.france_travail import search_offers, normalize_offer
 from app.services.matching import match_candidate_to_offers
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -224,6 +226,7 @@ async def compute_matching(
         profile=profile_dict,
         candidate=candidate_dict,
         offers=offers_data,
+        user_id=_user["sub"],
     )
 
     # Sauvegarder les résultats (avec mapping fiable offre <-> score)
@@ -314,3 +317,20 @@ async def get_candidate_matchings(
         .order_by(MatchingResult.global_score.desc())
     )
     return result.scalars().all()
+
+
+@router.get("/proposals/counts")
+async def get_proposal_counts(
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Retourne le nombre de propositions envoyées par offre d'emploi."""
+    result = await db.execute(
+        select(
+            SentProposal.job_offer_id,
+            func.count(SentProposal.id).label("count"),
+        )
+        .group_by(SentProposal.job_offer_id)
+    )
+    rows = result.all()
+    return {str(row.job_offer_id): row.count for row in rows}

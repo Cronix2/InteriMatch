@@ -36,11 +36,20 @@ api.interceptors.response.use(
 );
 
 // --- Auth ---
-export const login = (email: string, password: string) =>
-  api.post("/auth/login", { email, password });
+export const login = (email: string, password: string, totp_code?: string) =>
+  api.post("/auth/login", { email, password, totp_code: totp_code || undefined });
 
 export const register = (email: string, password: string, full_name: string) =>
   api.post("/auth/register", { email, password, full_name });
+
+// --- 2FA ---
+export const setup2FA = () => api.post("/auth/2fa/setup");
+
+export const verify2FA = (code: string) =>
+  api.post("/auth/2fa/verify", { code });
+
+export const disable2FA = (code: string) =>
+  api.post("/auth/2fa/disable", { code });
 
 // --- CV ---
 export const uploadCV = (file: File) => {
@@ -54,10 +63,21 @@ export const uploadCV = (file: File) => {
 export const getExtractedProfile = (resumeId: string) =>
   api.get(`/cv/profile/${resumeId}`);
 
+export const getCandidateProfile = (candidateId: string) =>
+  api.get(`/cv/candidate/${candidateId}/profile`);
+
+export const downloadAnonymizedCV = (candidateId: string) =>
+  api.get(`/cv/candidate/${candidateId}/anonymized-cv`, { responseType: "blob" });
+
 // --- Candidats ---
 export const listCandidates = () => api.get("/candidates/");
 
 export const getCandidate = (id: string) => api.get(`/candidates/${id}`);
+
+export const listPipelineCandidates = () => api.get("/candidates/pipeline");
+
+export const updateCandidateStatus = (candidateId: string, status: string) =>
+  api.put(`/candidates/${candidateId}/processing-status`, { status });
 
 // --- Offres ---
 export const searchJobOffers = (params: {
@@ -81,6 +101,8 @@ export const computeMatching = (params: {
 export const getCandidateMatchings = (candidateId: string) =>
   api.get(`/matching/candidate/${candidateId}`);
 
+export const getProposalCounts = () => api.get("/matching/proposals/counts");
+
 export const getMatchingHistory = () => api.get("/matching/history");
 
 // --- Emails ---
@@ -103,6 +125,11 @@ export const updateSettings = (data: {
   last_name?: string;
   company_name?: string;
   theme?: string;
+  agency_address?: string;
+  agency_phone?: string;
+  agency_email?: string;
+  agency_siret?: string;
+  email_template?: string;
   ai_api_key?: string;
   ai_model?: string;
   ai_base_url?: string;
@@ -118,5 +145,33 @@ export const changePassword = (
 
 // --- Dashboard ---
 export const getDashboardStats = () => api.get("/dashboard/stats");
+export const getApiMetrics = () => api.get("/dashboard/api-metrics");
+
+// --- Upload groupé (ZIP) ---
+export const uploadBulkCV = (file: File) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api.post("/bulk-upload/upload-zip", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
+export const getBulkJobs = () => api.get("/bulk-upload/jobs");
+
+export const getBulkJobStatus = (jobId: string) =>
+  api.get(`/bulk-upload/jobs/${jobId}`);
+
+export const pauseBulkJob = (jobId: string) =>
+  api.put(`/bulk-upload/jobs/${jobId}/pause`);
+
+export const resumeBulkJob = (jobId: string) =>
+  api.put(`/bulk-upload/jobs/${jobId}/resume`);
+
+export const cancelBulkJob = (jobId: string) =>
+  api.put(`/bulk-upload/jobs/${jobId}/cancel`);
+
+// --- Recruteur ---
+export const lookupRecruiter = (jobOfferId: string) =>
+  api.get(`/recruiter/job/${jobOfferId}`);
 
 export default api;

@@ -40,7 +40,7 @@ def extract_text(file_bytes: bytes, file_name: str) -> str:
         raise ValueError(f"Format de fichier non supporté : {suffix}. Formats acceptés : PDF, DOCX")
 
 
-async def parse_cv(file_bytes: bytes, file_name: str) -> dict:
+async def parse_cv(file_bytes: bytes, file_name: str, user_id: str | None = None) -> dict:
     """
     Pipeline complet de parsing CV :
     1. Extraction du texte brut
@@ -52,7 +52,7 @@ async def parse_cv(file_bytes: bytes, file_name: str) -> dict:
     if not raw_text.strip():
         raise ValueError("Impossible d'extraire du texte depuis ce fichier. Le document est peut-être vide ou scanné.")
 
-    profile = await extract_cv_profile(raw_text)
+    profile = await extract_cv_profile(raw_text, user_id=user_id)
 
     return {
         "raw_text": raw_text,

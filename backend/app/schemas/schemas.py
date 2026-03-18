@@ -31,6 +31,7 @@ class TokenResponse(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    totp_code: str | None = None
 
 
 # ─── Candidat ────────────────────────────────────────────────────────────────
@@ -181,6 +182,11 @@ class UserSettingsResponse(BaseModel):
     last_name: str = ""
     company_name: str = ""
     theme: str = "system"
+    agency_address: str = ""
+    agency_phone: str = ""
+    agency_email: str = ""
+    agency_siret: str = ""
+    email_template: str = ""
     ai_model: str = ""
     ai_base_url: str = ""
     ai_temperature: float | None = None
@@ -203,6 +209,11 @@ class UserSettingsUpdate(BaseModel):
     last_name: str | None = None
     company_name: str | None = None
     theme: str | None = None
+    agency_address: str | None = None
+    agency_phone: str | None = None
+    agency_email: str | None = None
+    agency_siret: str | None = None
+    email_template: str | None = None
     ai_api_key: str | None = None
     ai_model: str | None = None
     ai_base_url: str | None = None

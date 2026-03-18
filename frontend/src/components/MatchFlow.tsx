@@ -5,6 +5,7 @@ import CVUpload from "@/components/CVUpload";
 import CandidateProfile from "@/components/CandidateProfile";
 import MatchingResults from "@/components/MatchingResults";
 import EmailPreview from "@/components/EmailPreview";
+import { getCandidateProfile } from "@/lib/api";
 
 type Step = "upload" | "profile" | "matching" | "email";
 
@@ -14,6 +15,23 @@ export default function MatchFlow() {
   const [profileData, setProfileData] = useState<any>(null);
   const [matchingResults, setMatchingResults] = useState<any[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
+
+  const handleStartMatching = async (cid: string) => {
+    try {
+      const res = await getCandidateProfile(cid);
+      const { candidate, extracted_profile } = res.data;
+      setCandidateId(candidate.id);
+      setProfileData({
+        ...extracted_profile,
+        _candidateLocation: candidate.location,
+      });
+      setMatchingResults([]);
+      setSelectedMatch(null);
+      setStep("matching");
+    } catch {
+      // silently fail
+    }
+  };
 
   const steps = [
     { key: "upload" as Step, label: "1. Upload CV" },
@@ -51,9 +69,13 @@ export default function MatchFlow() {
         <CVUpload
           onSuccess={(data) => {
             setCandidateId(data.candidate.id);
-            setProfileData(data.extracted_profile);
+            setProfileData({
+              ...data.extracted_profile,
+              _candidateLocation: data.candidate?.location,
+            });
             setStep("profile");
           }}
+          onStartMatching={handleStartMatching}
         />
       )}
       {step === "profile" && profileData && (
@@ -65,6 +87,7 @@ export default function MatchFlow() {
       {step === "matching" && candidateId && (
         <MatchingResults
           candidateId={candidateId}
+          profileData={profileData}
           results={matchingResults}
           onResultsLoaded={setMatchingResults}
           onSelectMatch={(match) => {
@@ -74,7 +97,7 @@ export default function MatchFlow() {
         />
       )}
       {step === "email" && selectedMatch && (
-        <EmailPreview matchingResultId={selectedMatch.id} />
+        <EmailPreview matchingResultId={selectedMatch.id} candidateId={candidateId || undefined} />
       )}
     </div>
   );

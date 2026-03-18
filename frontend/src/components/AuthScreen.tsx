@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import { login, register } from "@/lib/api";
 
 interface AuthScreenProps {
@@ -15,6 +15,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,17 +27,25 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       if (mode === "register") {
         await register(email, password, fullName);
       }
-      const response = await login(email, password);
+      const response = await login(email, password, needs2FA ? totpCode : undefined);
       localStorage.setItem("interimatch_token", response.data.access_token);
       onAuthenticated();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      setError(
-        axiosErr.response?.data?.detail ||
-          (mode === "login"
-            ? "Erreur de connexion. Vérifiez vos identifiants."
-            : "Erreur lors de l'inscription.")
-      );
+      const axiosErr = err as { response?: { data?: { detail?: string }; status?: number } };
+      const detail = axiosErr.response?.data?.detail;
+
+      if (detail === "2fa_required") {
+        setNeeds2FA(true);
+        setTotpCode("");
+        setError(null);
+      } else {
+        setError(
+          detail ||
+            (mode === "login"
+              ? "Erreur de connexion. Vérifiez vos identifiants."
+              : "Erreur lors de l'inscription.")
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -61,6 +71,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               onClick={() => {
                 setMode("login");
                 setError(null);
+                setNeeds2FA(false);
               }}
               className={`flex-1 pb-2 text-sm font-medium border-b-2 transition-colors ${
                 mode === "login"
@@ -75,6 +86,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               onClick={() => {
                 setMode("register");
                 setError(null);
+                setNeeds2FA(false);
               }}
               className={`flex-1 pb-2 text-sm font-medium border-b-2 transition-colors ${
                 mode === "register"
@@ -141,6 +153,30 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 placeholder="Minimum 8 caractères"
               />
             </div>
+
+            {/* 2FA Code Input */}
+            {needs2FA && mode === "login" && (
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                    Vérification 2FA requise
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  required
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-center text-lg tracking-widest font-mono"
+                  placeholder="000000"
+                  autoFocus
+                />
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm px-4 py-3 rounded-lg">

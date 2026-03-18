@@ -8,14 +8,24 @@ import {
   Edit3,
   Copy,
   ExternalLink,
+  Download,
 } from "lucide-react";
-import { generateEmail, updateEmail, getMe } from "@/lib/api";
+import { generateEmail, updateEmail, getMe, downloadAnonymizedCV } from "@/lib/api";
 
 interface EmailPreviewProps {
   matchingResultId: string;
+  candidateId?: string;
 }
 
-function replaceSenderPlaceholders(text: string, firstName: string, lastName: string, company: string): string {
+function replaceSenderPlaceholders(
+  text: string,
+  firstName: string,
+  lastName: string,
+  company: string,
+  agencyPhone: string = "",
+  agencyEmail: string = "",
+  agencyAddress: string = "",
+): string {
   // Replace common placeholder patterns the LLM might generate
   let result = text;
   const fullName = `${firstName} ${lastName}`.trim();
@@ -38,6 +48,14 @@ function replaceSenderPlaceholders(text: string, firstName: string, lastName: st
     [/\[Votre agence\]/gi, company],
     [/\[Nom agence\]/gi, company],
     [/\[Votre société\]/gi, company],
+    [/\[Votre numéro de téléphone\]/gi, agencyPhone],
+    [/\[Téléphone\]/gi, agencyPhone],
+    [/\[Votre téléphone\]/gi, agencyPhone],
+    [/\[Votre email\]/gi, agencyEmail],
+    [/\[Email de l'agence\]/gi, agencyEmail],
+    [/\[Votre adresse\]/gi, agencyAddress],
+    [/\[Adresse de l'agence\]/gi, agencyAddress],
+    [/\[Adresse\]/gi, agencyAddress],
   ];
   for (const [pattern, replacement] of replacements) {
     if (replacement) {
@@ -49,6 +67,7 @@ function replaceSenderPlaceholders(text: string, firstName: string, lastName: st
 
 export default function EmailPreview({
   matchingResultId,
+  candidateId,
 }: EmailPreviewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,10 +77,20 @@ export default function EmailPreview({
   const [editBody, setEditBody] = useState("");
   const [copied, setCopied] = useState(false);
   const generatedForIdRef = useRef<string | null>(null);
-  const senderInfoRef = useRef<{ firstName: string; lastName: string; company: string }>({
+  const senderInfoRef = useRef<{
+    firstName: string;
+    lastName: string;
+    company: string;
+    agencyPhone: string;
+    agencyEmail: string;
+    agencyAddress: string;
+  }>({
     firstName: "",
     lastName: "",
     company: "",
+    agencyPhone: "",
+    agencyEmail: "",
+    agencyAddress: "",
   });
 
   // Load user settings once
@@ -74,6 +103,9 @@ export default function EmailPreview({
           firstName: s.first_name || "",
           lastName: s.last_name || "",
           company: s.company_name || "",
+          agencyPhone: s.agency_phone || "",
+          agencyEmail: s.agency_email || "",
+          agencyAddress: s.agency_address || "",
         };
       } catch {
         // silently fail — placeholders just won't be replaced
@@ -94,12 +126,12 @@ export default function EmailPreview({
       try {
         const response = await generateEmail(matchingResultId);
         setEmailData(response.data);
-        const { firstName, lastName, company } = senderInfoRef.current;
+        const { firstName, lastName, company, agencyPhone, agencyEmail, agencyAddress } = senderInfoRef.current;
         setEditSubject(
-          replaceSenderPlaceholders(response.data.subject, firstName, lastName, company)
+          replaceSenderPlaceholders(response.data.subject, firstName, lastName, company, agencyPhone, agencyEmail, agencyAddress)
         );
         setEditBody(
-          replaceSenderPlaceholders(response.data.body, firstName, lastName, company)
+          replaceSenderPlaceholders(response.data.body, firstName, lastName, company, agencyPhone, agencyEmail, agencyAddress)
         );
       } catch (err: any) {
         setError(
@@ -149,6 +181,23 @@ export default function EmailPreview({
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadAnonymizedCV = async () => {
+    if (!candidateId) return;
+    try {
+      const res = await downloadAnonymizedCV(candidateId);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "cv_anonymise.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      // silently fail
+    }
   };
 
   if (loading) {
@@ -223,6 +272,15 @@ export default function EmailPreview({
             <Copy className="w-4 h-4" />
             {copied ? "Copié !" : "Copier"}
           </button>
+          {candidateId && (
+            <button
+              onClick={handleDownloadAnonymizedCV}
+              className="flex items-center gap-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              CV anonymisé
+            </button>
+          )}
         </div>
       </div>
 

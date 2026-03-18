@@ -38,6 +38,27 @@ export default function CandidateProfile({
         </div>
       )}
 
+      {/* Informations clés pré-remplies */}
+      {(profile.mobility || (profile.desired_job_titles && profile.desired_job_titles.length > 0)) && (
+        <div className="flex flex-wrap gap-3 mb-6">
+          {profile.mobility && (
+            <span className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800">
+              <MapPin className="w-4 h-4 text-blue-500" />
+              {profile.mobility}
+            </span>
+          )}
+          {(profile.desired_job_titles || []).slice(0, 3).map((title: string, i: number) => (
+            <span
+              key={i}
+              className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 bg-amber-50 dark:bg-amber-900/20 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800"
+            >
+              <Briefcase className="w-4 h-4 text-amber-500" />
+              {title}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Compétences */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">

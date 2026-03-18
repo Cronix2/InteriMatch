@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.database import engine, Base
 from sqlalchemy import text
-from app.api.routes import candidates, cv, matching, emails, auth, job_offers
+from app.api.routes import candidates, cv, matching, emails, auth, job_offers, bulk_upload, recruiter, two_factor
 from app.api.routes import settings as settings_routes
 from app.api.routes import dashboard
 
@@ -32,6 +32,48 @@ async def lifespan(app: FastAPI):
                 text(
                     "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
                     " ai_base_url VARCHAR(500) DEFAULT ''"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                    " agency_address VARCHAR(500) DEFAULT ''"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                    " agency_phone VARCHAR(50) DEFAULT ''"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                    " agency_email VARCHAR(255) DEFAULT ''"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                    " agency_siret VARCHAR(20) DEFAULT ''"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                    " email_template TEXT DEFAULT ''"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE extracted_profiles ADD COLUMN IF NOT EXISTS"
+                    " professional_domain VARCHAR(100)"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS"
+                    " processing_status VARCHAR(20) DEFAULT 'pending'"
                 )
             )
         logger.info("Base de données initialisée")
@@ -84,6 +126,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Montage des routes
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentification"])
+app.include_router(two_factor.router, prefix="/api/v1/auth/2fa", tags=["2FA"])
 app.include_router(candidates.router, prefix="/api/v1/candidates", tags=["Candidats"])
 app.include_router(cv.router, prefix="/api/v1/cv", tags=["CV"])
 app.include_router(job_offers.router, prefix="/api/v1/job-offers", tags=["Offres d'emploi"])
@@ -91,6 +134,8 @@ app.include_router(matching.router, prefix="/api/v1/matching", tags=["Matching"]
 app.include_router(emails.router, prefix="/api/v1/emails", tags=["Emails"])
 app.include_router(settings_routes.router, prefix="/api/v1/settings", tags=["Paramètres"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
+app.include_router(bulk_upload.router, prefix="/api/v1/bulk-upload", tags=["Upload groupé"])
+app.include_router(recruiter.router, prefix="/api/v1/recruiter", tags=["Recruteur"])
 
 
 @app.get("/health")

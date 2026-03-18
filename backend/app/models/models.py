@@ -54,6 +54,15 @@ class UserSettings(Base):
     company_name = Column(String(255), default="")
     theme = Column(String(20), default="system")  # light, dark, system
 
+    # Coordonnées agence
+    agency_address = Column(String(500), default="")
+    agency_phone = Column(String(50), default="")
+    agency_email = Column(String(255), default="")
+    agency_siret = Column(String(20), default="")
+
+    # Modèle d'email personnalisé
+    email_template = Column(Text, default="")
+
     # IA overrides
     ai_api_key = Column(String(500), default="")
     ai_model = Column(String(100), default="")
@@ -85,6 +94,7 @@ class Candidate(Base):
     phone = Column(String(50))
     location = Column(String(255))
     availability = Column(String(100))
+    processing_status = Column(String(20), default="pending")  # pending, matching, email, completed
     created_at = Column(DateTime(timezone=True), default=utcnow)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
@@ -126,6 +136,7 @@ class ExtractedProfile(Base):
     profile_summary = Column(Text)
     years_of_experience = Column(Integer)
     desired_job_titles = Column(JSON, default=list)
+    professional_domain = Column(String(100), nullable=True)
 
     extracted_at = Column(DateTime(timezone=True), default=utcnow)
 
@@ -209,3 +220,54 @@ class AuditLog(Base):
     entity_id = Column(String(100))
     details = Column(JSON)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── Upload groupé (ZIP) ────────────────────────────────────────────────────
+
+class BulkUploadJob(Base):
+    __tablename__ = "bulk_upload_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    total_files = Column(Integer, default=0)
+    processed_files = Column(Integer, default=0)
+    successful_files = Column(Integer, default=0)
+    failed_files = Column(Integer, default=0)
+    status = Column(String(30), default="pending")  # pending, processing, completed, failed
+    results = Column(JSON, default=list)  # [{filename, candidate_id, status, error?}]
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+# ─── Suivi usage API ────────────────────────────────────────────────────────
+
+class ApiUsageLog(Base):
+    __tablename__ = "api_usage_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    service = Column(String(50), nullable=False)  # ai, france_travail
+    action = Column(String(100), nullable=False)  # cv_parse, matching, email_generate, search_offers
+    tokens_input = Column(Integer, default=0)
+    tokens_output = Column(Integer, default=0)
+    latency_ms = Column(Integer, default=0)
+    estimated_cost = Column(Float, default=0.0)
+    success = Column(Boolean, default=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── Propositions envoyées ──────────────────────────────────────────────────
+
+class SentProposal(Base):
+    __tablename__ = "sent_proposals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_offer_id = Column(UUID(as_uuid=True), ForeignKey("job_offers.id"), nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
+    email_id = Column(UUID(as_uuid=True), ForeignKey("generated_emails.id"), nullable=True)
+    sent_at = Column(DateTime(timezone=True), default=utcnow)
+
+    job_offer = relationship("JobOffer")
+    candidate = relationship("Candidate")
+    email = relationship("GeneratedEmail")

@@ -48,6 +48,9 @@ async def generate_candidate_email(
     offer: dict,
     match_score: float,
     match_explanation: str,
+    agency_info: dict | None = None,
+    email_template: str = "",
+    user_id: str | None = None,
 ) -> dict:
     """
     Génère un email professionnel pour proposer un candidat à une entreprise.
@@ -55,6 +58,23 @@ async def generate_candidate_email(
     Retourne : {"subject": str, "body": str}
     """
     candidate_text = _format_profile_for_email(profile, candidate)
+
+    # Construire les infos agence pour le prompt
+    agency_info = agency_info or {}
+    agency_text = ""
+    if any(agency_info.values()):
+        parts = []
+        if agency_info.get("recruiter_name"):
+            parts.append(f"Signataire : {agency_info['recruiter_name']}")
+        if agency_info.get("agency_name"):
+            parts.append(f"Agence : {agency_info['agency_name']}")
+        if agency_info.get("agency_phone"):
+            parts.append(f"Tél : {agency_info['agency_phone']}")
+        if agency_info.get("agency_email"):
+            parts.append(f"Email : {agency_info['agency_email']}")
+        if agency_info.get("agency_address"):
+            parts.append(f"Adresse : {agency_info['agency_address']}")
+        agency_text = "\n".join(parts)
 
     result = await ai_generate_email(
         candidate_profile=candidate_text,
@@ -64,6 +84,9 @@ async def generate_candidate_email(
         job_description=offer.get("description", "")[:800],
         match_score=match_score,
         match_explanation=match_explanation,
+        agency_info=agency_text,
+        email_template=email_template,
+        user_id=user_id,
     )
 
     return {

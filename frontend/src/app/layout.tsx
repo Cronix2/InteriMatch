@@ -5,6 +5,9 @@ export const metadata: Metadata = {
   title: "InteriMatch AI",
   description:
     "Application métier pour les entreprises d'intérim — matching CV / offres d'emploi avec IA",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({

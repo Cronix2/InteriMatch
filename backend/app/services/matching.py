@@ -76,6 +76,7 @@ async def match_candidate_to_offers(
     profile: dict,
     candidate: dict,
     offers: list[dict],
+    user_id: str | None = None,
 ) -> list[dict]:
     """
     Calcule le matching entre un candidat et une liste d'offres.
@@ -89,7 +90,7 @@ async def match_candidate_to_offers(
     for offer in offers:
         offer_text = _format_offer_for_matching(offer)
         try:
-            scores = await compute_ai_matching(candidate_text, offer_text)
+            scores = await compute_ai_matching(candidate_text, offer_text, user_id=user_id)
             results.append({
                 "offer": offer,
                 "global_score": scores.get("global_score", 0),

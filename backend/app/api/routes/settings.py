@@ -28,6 +28,11 @@ def _settings_to_response(s: UserSettings | None) -> UserSettingsResponse:
         last_name=s.last_name or "",
         company_name=s.company_name or "",
         theme=s.theme or "system",
+        agency_address=s.agency_address or "",
+        agency_phone=s.agency_phone or "",
+        agency_email=s.agency_email or "",
+        agency_siret=s.agency_siret or "",
+        email_template=s.email_template or "",
         ai_model=s.ai_model or "",
         ai_base_url=s.ai_base_url or "",
         ai_temperature=s.ai_temperature,
@@ -94,6 +99,16 @@ async def update_settings(
         s.france_travail_client_id = data.france_travail_client_id.strip()
     if data.france_travail_client_secret is not None:
         s.france_travail_client_secret = data.france_travail_client_secret.strip()
+    if data.agency_address is not None:
+        s.agency_address = data.agency_address.strip()
+    if data.agency_phone is not None:
+        s.agency_phone = data.agency_phone.strip()
+    if data.agency_email is not None:
+        s.agency_email = data.agency_email.strip()
+    if data.agency_siret is not None:
+        s.agency_siret = data.agency_siret.strip()
+    if data.email_template is not None:
+        s.email_template = data.email_template
 
     # Mettre à jour full_name si prénom/nom modifiés
     if data.first_name is not None or data.last_name is not None:

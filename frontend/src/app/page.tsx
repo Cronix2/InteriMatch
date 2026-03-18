@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import AuthScreen from "@/components/AuthScreen";
 import Sidebar, { type Page } from "@/components/Sidebar";
 import Dashboard from "@/components/Dashboard";
-import MatchFlow from "@/components/MatchFlow";
+import CVPipeline from "@/components/CVPipeline";
 import History from "@/components/History";
 import Settings from "@/components/Settings";
 import { getMe } from "@/lib/api";
@@ -97,7 +97,7 @@ export default function Home() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto px-6 py-8">
           {page === "dashboard" && <Dashboard />}
-          {page === "match" && <MatchFlow />}
+          {page === "match" && <CVPipeline />}
           {page === "history" && <History />}
           {page === "settings" && <Settings onThemeChange={handleThemeChange} />}
         </div>

@@ -15,14 +15,25 @@ import {
   Shield,
   Check,
   AlertCircle,
+  MapPin,
+  Phone,
+  Mail,
+  FileText,
+  ShieldCheck,
+  ShieldOff,
 } from "lucide-react";
-import { getMe, updateSettings, changePassword } from "@/lib/api";
+import { getMe, updateSettings, changePassword, setup2FA, verify2FA, disable2FA } from "@/lib/api";
 
 interface SettingsData {
   first_name: string;
   last_name: string;
   company_name: string;
   theme: string;
+  agency_address: string;
+  agency_phone: string;
+  agency_email: string;
+  agency_siret: string;
+  email_template: string;
   ai_model: string;
   ai_base_url: string;
   ai_temperature: number | null;
@@ -34,6 +45,208 @@ interface SettingsData {
 
 interface SettingsProps {
   onThemeChange: (theme: string) => void;
+}
+
+/* ─── 2FA Sub-component ──────────────────────────────────────────────── */
+function TwoFactorSection({
+  totpEnabled,
+  onStatusChange,
+  onError,
+}: {
+  totpEnabled: boolean;
+  onStatusChange: (enabled: boolean) => void;
+  onError: (msg: string) => void;
+}) {
+  const [step, setStep] = useState<"idle" | "setup" | "disable">("idle");
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [secret, setSecret] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleStartSetup = async () => {
+    setLoading(true);
+    try {
+      const res = await setup2FA();
+      setQrCode(res.data.qr_code);
+      setSecret(res.data.secret);
+      setStep("setup");
+      setCode("");
+    } catch (err: any) {
+      onError(err.response?.data?.detail || "Erreur lors de la configuration 2FA");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (code.length !== 6) return;
+    setLoading(true);
+    try {
+      await verify2FA(code);
+      onStatusChange(true);
+      setStep("idle");
+      setQrCode(null);
+      setSecret(null);
+      setCode("");
+    } catch (err: any) {
+      onError(err.response?.data?.detail || "Code invalide");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    if (code.length !== 6) return;
+    setLoading(true);
+    try {
+      await disable2FA(code);
+      onStatusChange(false);
+      setStep("idle");
+      setCode("");
+    } catch (err: any) {
+      onError(err.response?.data?.detail || "Code invalide");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (step === "setup" && qrCode) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield className="w-5 h-5 text-primary-500" />
+          <p className="text-sm font-medium text-gray-900 dark:text-white">
+            Configurer l&apos;authentification 2FA
+          </p>
+        </div>
+        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-3">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            1. Scannez ce QR code avec votre application d&apos;authentification (Google Authenticator, Authy, etc.)
+          </p>
+          <div className="flex justify-center py-2">
+            <img src={qrCode} alt="QR Code 2FA" className="w-48 h-48 rounded-lg" />
+          </div>
+          <details className="text-xs text-gray-500 dark:text-gray-400">
+            <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+              Ou entrez ce code manuellement
+            </summary>
+            <code className="block mt-1 bg-gray-200 dark:bg-gray-600 px-3 py-1.5 rounded font-mono text-sm break-all">
+              {secret}
+            </code>
+          </details>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            2. Entrez le code à 6 chiffres affiché par l&apos;application :
+          </p>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              className="w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-center text-lg tracking-widest font-mono focus:ring-2 focus:ring-primary-500 outline-none"
+              placeholder="000000"
+            />
+            <button
+              onClick={handleVerify}
+              disabled={loading || code.length !== 6}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              Activer
+            </button>
+            <button
+              onClick={() => { setStep("idle"); setQrCode(null); setSecret(null); }}
+              className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "disable") {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <ShieldOff className="w-5 h-5 text-red-500" />
+          <p className="text-sm font-medium text-gray-900 dark:text-white">
+            Désactiver la 2FA
+          </p>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Entrez un code de votre application d&apos;authentification pour confirmer :
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            className="w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-center text-lg tracking-widest font-mono focus:ring-2 focus:ring-primary-500 outline-none"
+            placeholder="000000"
+          />
+          <button
+            onClick={handleDisable}
+            disabled={loading || code.length !== 6}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldOff className="w-4 h-4" />}
+            Désactiver
+          </button>
+          <button
+            onClick={() => { setStep("idle"); setCode(""); }}
+            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            Annuler
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <Shield className="w-5 h-5 text-gray-500" />
+        <div>
+          <p className="text-sm font-medium text-gray-900 dark:text-white">
+            Authentification à deux facteurs (2FA)
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {totpEnabled
+              ? "Activée — Protection renforcée"
+              : "Désactivée — Ajoutez une couche de sécurité"}
+          </p>
+        </div>
+      </div>
+      {totpEnabled ? (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+            Actif
+          </span>
+          <button
+            onClick={() => { setStep("disable"); setCode(""); }}
+            className="text-xs text-red-600 dark:text-red-400 hover:underline"
+          >
+            Désactiver
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleStartSetup}
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-xs font-medium disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+          Activer
+        </button>
+      )}
+    </div>
+  );
 }
 
 export default function Settings({ onThemeChange }: SettingsProps) {
@@ -69,6 +282,15 @@ export default function Settings({ onThemeChange }: SettingsProps) {
   const [ftSecret, setFtSecret] = useState("");
   const [ftSecretSet, setFtSecretSet] = useState(false);
 
+  // Agence
+  const [agencyAddress, setAgencyAddress] = useState("");
+  const [agencyPhone, setAgencyPhone] = useState("");
+  const [agencyEmail, setAgencyEmail] = useState("");
+  const [agencySiret, setAgencySiret] = useState("");
+
+  // Modèle d'email
+  const [emailTemplate, setEmailTemplate] = useState("");
+
   // 2FA
   const [totpEnabled, setTotpEnabled] = useState(false);
 
@@ -89,6 +311,11 @@ export default function Settings({ onThemeChange }: SettingsProps) {
         setAiKeySet(s.ai_api_key_set);
         setFtClientId(s.france_travail_client_id);
         setFtSecretSet(s.france_travail_secret_set);
+        setAgencyAddress(s.agency_address || "");
+        setAgencyPhone(s.agency_phone || "");
+        setAgencyEmail(s.agency_email || "");
+        setAgencySiret(s.agency_siret || "");
+        setEmailTemplate(s.email_template || "");
         setTotpEnabled(s.totp_enabled);
       } catch {
         setError("Impossible de charger les paramètres");
@@ -196,6 +423,35 @@ export default function Settings({ onThemeChange }: SettingsProps) {
     }
   };
 
+  const handleSaveAgency = async () => {
+    setSaving(true);
+    try {
+      await updateSettings({
+        agency_address: agencyAddress,
+        agency_phone: agencyPhone,
+        agency_email: agencyEmail,
+        agency_siret: agencySiret,
+      });
+      flash("Coordonnées de l'agence sauvegardées");
+    } catch {
+      flashError("Erreur de sauvegarde");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveEmailTemplate = async () => {
+    setSaving(true);
+    try {
+      await updateSettings({ email_template: emailTemplate });
+      flash("Modèle d'email sauvegardé");
+    } catch {
+      flashError("Erreur de sauvegarde");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -288,6 +544,92 @@ export default function Settings({ onThemeChange }: SettingsProps) {
           </button>
         </div>
 
+        {/* ─── Coordonnées Agence ─────────────────────── */}
+        <div className={sectionCls}>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Building className="w-5 h-5" />
+            Coordonnées de l&apos;agence
+            <span className="text-xs font-normal text-gray-500 dark:text-gray-400 ml-1">
+              (utilisées dans les emails)
+            </span>
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>
+                <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> Téléphone</span>
+              </label>
+              <input
+                className={inputCls}
+                value={agencyPhone}
+                onChange={(e) => setAgencyPhone(e.target.value)}
+                placeholder="01 23 45 67 89"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>
+                <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> Email de l&apos;agence</span>
+              </label>
+              <input
+                type="email"
+                className={inputCls}
+                value={agencyEmail}
+                onChange={(e) => setAgencyEmail(e.target.value)}
+                placeholder="contact@agence.fr"
+              />
+            </div>
+          </div>
+          <div className="mb-4">
+            <label className={labelCls}>
+              <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Adresse</span>
+            </label>
+            <input
+              className={inputCls}
+              value={agencyAddress}
+              onChange={(e) => setAgencyAddress(e.target.value)}
+              placeholder="12 rue de la Paix, 75002 Paris"
+            />
+          </div>
+          <div className="mb-4">
+            <label className={labelCls}>SIRET</label>
+            <input
+              className={inputCls}
+              value={agencySiret}
+              onChange={(e) => setAgencySiret(e.target.value)}
+              placeholder="123 456 789 00010"
+            />
+          </div>
+          <button onClick={handleSaveAgency} disabled={saving} className={btnPrimary}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Enregistrer
+          </button>
+        </div>
+
+        {/* ─── Modèle d'email ─────────────────────────── */}
+        <div className={sectionCls}>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            Modèle d&apos;email
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Personnalisez le modèle utilisé par l&apos;IA pour générer les emails.
+            Laissez vide pour utiliser le modèle par défaut.
+            Variables disponibles : {"{nom_agence}"}, {"{telephone}"}, {"{email_agence}"}, {"{adresse}"}, {"{nom_recruteur}"}
+          </p>
+          <textarea
+            className={`${inputCls} resize-y`}
+            rows={10}
+            value={emailTemplate}
+            onChange={(e) => setEmailTemplate(e.target.value)}
+            placeholder={`Objet : Proposition de candidature — {poste} chez {entreprise}\n\nBonjour,\n\nNous avons le plaisir de vous proposer un profil correspond parfaitement à votre offre de {poste}.\n\n[Description des compétences et expériences du candidat]\n\nNous serions ravis d'échanger avec vous pour organiser un entretien.\n\nCordialement,\n{nom_recruteur}\n{nom_agence}\nTél : {telephone}\n{email_agence}`}
+          />
+          <div className="mt-4">
+            <button onClick={handleSaveEmailTemplate} disabled={saving} className={btnPrimary}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Enregistrer
+            </button>
+          </div>
+        </div>
+
         {/* ─── Apparence ──────────────────────────────── */}
         <div className={sectionCls}>
           <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -366,32 +708,16 @@ export default function Settings({ onThemeChange }: SettingsProps) {
             Changer le mot de passe
           </button>
 
-          {/* 2FA placeholder */}
+          {/* 2FA section */}
           <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Shield className="w-5 h-5 text-gray-500" />
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    Authentification à deux facteurs (2FA)
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {totpEnabled
-                      ? "Activé — Protection renforcée"
-                      : "Désactivé — Bientôt disponible"}
-                  </p>
-                </div>
-              </div>
-              <span
-                className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                  totpEnabled
-                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                    : "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
-                }`}
-              >
-                {totpEnabled ? "Actif" : "Bientôt"}
-              </span>
-            </div>
+            <TwoFactorSection
+              totpEnabled={totpEnabled}
+              onStatusChange={(enabled) => {
+                setTotpEnabled(enabled);
+                flash(enabled ? "2FA activée" : "2FA désactivée");
+              }}
+              onError={flashError}
+            />
           </div>
         </div>
 

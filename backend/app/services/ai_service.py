@@ -3,13 +3,20 @@ InteriMatch AI - Service IA via LangChain (OpenAI-compatible)
 Centralise tous les appels au LLM.
 """
 
+import time
+import logging
+import uuid
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
 from app.core.config import get_settings
+from app.core.database import async_session
+from app.models.models import ApiUsageLog
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def get_llm() -> ChatOpenAI:
@@ -22,6 +29,38 @@ def get_llm() -> ChatOpenAI:
         max_tokens=settings.ai_max_tokens,
         request_timeout=120,
     )
+
+
+async def _log_api_usage(
+    service: str,
+    action: str,
+    latency_ms: int,
+    success: bool,
+    error_message: str | None = None,
+    tokens_input: int = 0,
+    tokens_output: int = 0,
+    user_id: str | None = None,
+):
+    """Enregistre une utilisation d'API dans la base."""
+    try:
+        # Estimation du coût (basique, à ajuster selon le provider)
+        estimated_cost = (tokens_input * 0.00001) + (tokens_output * 0.00003)
+        async with async_session() as db:
+            log = ApiUsageLog(
+                user_id=uuid.UUID(user_id) if user_id else None,
+                service=service,
+                action=action,
+                tokens_input=tokens_input,
+                tokens_output=tokens_output,
+                latency_ms=latency_ms,
+                estimated_cost=round(estimated_cost, 6),
+                success=success,
+                error_message=error_message,
+            )
+            db.add(log)
+            await db.commit()
+    except Exception as e:
+        logger.warning("Échec log API usage: %s", e)
 
 
 # ─── Extraction de profil CV ────────────────────────────────────────────────
@@ -52,17 +91,29 @@ Format attendu :
   "mobility": "zone de mobilité ou null",
   "profile_summary": "résumé professionnel en 2-3 phrases",
   "years_of_experience": nombre_entier_ou_null,
-  "desired_job_titles": ["intitulé poste recherché 1", ...]
+  "desired_job_titles": ["intitulé poste recherché 1", ...],
+  "professional_domain": "un seul mot décrivant le domaine/secteur professionnel principal du candidat (ex: informatique, bâtiment, logistique, restauration, industrie, commerce, santé, transport, agriculture, hôtellerie, comptabilité, électricité, mécanique)"
 }}"""),
     ("human", "Voici le texte brut du CV :\n\n{cv_text}")
 ])
 
 
-async def extract_cv_profile(cv_text: str) -> dict:
+async def extract_cv_profile(cv_text: str, user_id: str | None = None) -> dict:
     """Extrait les informations structurées d'un CV via le LLM."""
     llm = get_llm()
     chain = CV_EXTRACTION_PROMPT | llm | JsonOutputParser()
-    return await chain.ainvoke({"cv_text": cv_text})
+    start = time.monotonic()
+    try:
+        result = await chain.ainvoke({"cv_text": cv_text})
+        latency = int((time.monotonic() - start) * 1000)
+        tokens_in = len(cv_text) // 4  # estimation grossière
+        tokens_out = 500  # estimation pour l'extraction
+        await _log_api_usage("ai", "extract_cv", latency, True, tokens_input=tokens_in, tokens_output=tokens_out, user_id=user_id)
+        return result
+    except Exception as e:
+        latency = int((time.monotonic() - start) * 1000)
+        await _log_api_usage("ai", "extract_cv", latency, False, error_message=str(e)[:200], user_id=user_id)
+        raise
 
 
 # ─── Matching scoring assisté IA ────────────────────────────────────────────
@@ -93,14 +144,25 @@ OFFRE D'EMPLOI :
 ])
 
 
-async def compute_ai_matching(candidate_profile: str, job_offer: str) -> dict:
+async def compute_ai_matching(candidate_profile: str, job_offer: str, user_id: str | None = None) -> dict:
     """Calcule le score de matching candidat/offre via le LLM."""
     llm = get_llm()
     chain = MATCHING_PROMPT | llm | JsonOutputParser()
-    return await chain.ainvoke({
-        "candidate_profile": candidate_profile,
-        "job_offer": job_offer,
-    })
+    start = time.monotonic()
+    try:
+        result = await chain.ainvoke({
+            "candidate_profile": candidate_profile,
+            "job_offer": job_offer,
+        })
+        latency = int((time.monotonic() - start) * 1000)
+        tokens_in = (len(candidate_profile) + len(job_offer)) // 4
+        tokens_out = 300
+        await _log_api_usage("ai", "matching", latency, True, tokens_input=tokens_in, tokens_output=tokens_out, user_id=user_id)
+        return result
+    except Exception as e:
+        latency = int((time.monotonic() - start) * 1000)
+        await _log_api_usage("ai", "matching", latency, False, error_message=str(e)[:200], user_id=user_id)
+        raise
 
 
 # ─── Génération de mail ─────────────────────────────────────────────────────
@@ -118,6 +180,8 @@ RÈGLES STRICTES :
 - Ton professionnel et courtois.
 - Factuel, basé uniquement sur les compétences et expériences fournies.
 - Pas d'invention ni d'hallucination.
+- Utiliser les coordonnées de l'agence fournies pour la signature (si disponibles).
+- Si un modèle d'email est fourni, s'en inspirer pour la structure et le ton.
 - Structure : objet du mail, corps du mail.
 
 Réponds en JSON strict :
@@ -135,7 +199,13 @@ Lieu : {job_location}
 Description : {job_description}
 
 SCORE DE MATCHING : {match_score}/100
-EXPLICATION DU MATCHING : {match_explanation}""")
+EXPLICATION DU MATCHING : {match_explanation}
+
+COORDONNÉES DE L'AGENCE :
+{agency_info}
+
+MODÈLE D'EMAIL À SUIVRE :
+{email_template}""")
 ])
 
 
@@ -147,16 +217,33 @@ async def generate_email(
     job_description: str,
     match_score: float,
     match_explanation: str,
+    agency_info: str = "",
+    email_template: str = "",
+    user_id: str | None = None,
 ) -> dict:
     """Génère un mail professionnel de proposition de candidat."""
     llm = get_llm()
     chain = EMAIL_GENERATION_PROMPT | llm | JsonOutputParser()
-    return await chain.ainvoke({
-        "candidate_profile": candidate_profile,
-        "job_title": job_title,
-        "company_name": company_name,
-        "job_location": job_location,
-        "job_description": job_description,
-        "match_score": str(match_score),
-        "match_explanation": match_explanation,
-    })
+    start = time.monotonic()
+    try:
+        result = await chain.ainvoke({
+            "candidate_profile": candidate_profile,
+            "job_title": job_title,
+            "company_name": company_name,
+            "job_location": job_location,
+            "job_description": job_description,
+            "match_score": str(match_score),
+            "match_explanation": match_explanation,
+            "agency_info": agency_info or "(non renseignées)",
+            "email_template": email_template or "(utiliser le format par défaut)",
+        })
+        latency = int((time.monotonic() - start) * 1000)
+        total_input = len(candidate_profile) + len(job_description) + len(agency_info) + len(email_template)
+        tokens_in = total_input // 4
+        tokens_out = 600
+        await _log_api_usage("ai", "generate_email", latency, True, tokens_input=tokens_in, tokens_output=tokens_out, user_id=user_id)
+        return result
+    except Exception as e:
+        latency = int((time.monotonic() - start) * 1000)
+        await _log_api_usage("ai", "generate_email", latency, False, error_message=str(e)[:200], user_id=user_id)
+        raise

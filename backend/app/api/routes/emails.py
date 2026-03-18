@@ -20,6 +20,9 @@ from app.models.models import (
     Resume,
     ExtractedProfile,
     JobOffer,
+    User,
+    UserSettings,
+    SentProposal,
 )
 from app.schemas.schemas import (
     GeneratedEmailResponse,
@@ -27,6 +30,7 @@ from app.schemas.schemas import (
     EmailUpdateRequest,
 )
 from app.services.email_generator import generate_candidate_email
+from app.api.deps import get_current_user_db
 
 router = APIRouter()
 
@@ -35,7 +39,7 @@ router = APIRouter()
 async def generate_email(
     request: EmailGenerateRequest,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
     """
     Génère un email professionnel pour une correspondance candidat/offre.
@@ -96,6 +100,18 @@ async def generate_email(
         "description": match.job_offer.description or "",
     }
 
+    # Préparer les données agence
+    agency_info = {}
+    if user.settings:
+        s = user.settings
+        agency_info = {
+            "agency_name": s.company_name or "",
+            "agency_address": s.agency_address or "",
+            "agency_phone": s.agency_phone or "",
+            "agency_email": s.agency_email or "",
+            "recruiter_name": f"{s.first_name or ''} {s.last_name or ''}".strip(),
+        }
+
     # Générer le mail via IA
     email_data = await generate_candidate_email(
         profile=profile_dict,
@@ -103,6 +119,9 @@ async def generate_email(
         offer=offer_dict,
         match_score=match.global_score,
         match_explanation=match.explanation or "",
+        agency_info=agency_info,
+        email_template=user.settings.email_template if user.settings else "",
+        user_id=str(user.id),
     )
 
     # Sauvegarder
@@ -164,6 +183,18 @@ async def update_email(
         email.status = data.status
         if data.status == "validated":
             email.validated_at = datetime.now(timezone.utc)
+            # Créer un enregistrement SentProposal
+            match_result = await db.execute(
+                select(MatchingResult).where(MatchingResult.id == email.matching_result_id)
+            )
+            match = match_result.scalar_one_or_none()
+            if match:
+                proposal = SentProposal(
+                    job_offer_id=match.job_offer_id,
+                    candidate_id=match.candidate_id,
+                    email_id=email.id,
+                )
+                db.add(proposal)
 
     await db.flush()
     await db.refresh(email)

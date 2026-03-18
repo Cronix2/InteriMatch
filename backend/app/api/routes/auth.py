@@ -2,13 +2,15 @@
 InteriMatch AI - Routes Authentification
 """
 
+import pyotp
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
-from app.models.models import User
+from app.models.models import User, UserSettings
 from app.schemas.schemas import UserCreate, UserResponse, TokenResponse, LoginRequest
 
 router = APIRouter()
@@ -50,7 +52,11 @@ async def login(credentials: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="Email et mot de passe requis",
         )
 
-    result = await db.execute(select(User).where(User.email == normalized_email))
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.settings))
+        .where(User.email == normalized_email)
+    )
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(password, user.hashed_password):
@@ -60,6 +66,20 @@ async def login(credentials: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Compte désactivé")
+
+    # Check 2FA if enabled
+    if user.settings and user.settings.totp_enabled:
+        if not credentials.totp_code:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="2fa_required",
+            )
+        totp = pyotp.TOTP(user.settings.totp_secret)
+        if not totp.verify(credentials.totp_code.strip(), valid_window=1):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Code 2FA invalide",
+            )
 
     token = create_access_token(data={"sub": str(user.id), "role": user.role})
     return TokenResponse(access_token=token)
