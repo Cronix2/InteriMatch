@@ -19,10 +19,12 @@ from app.models.models import (
     JobOffer,
     MatchingResult,
     SentProposal,
+    User,
 )
 from app.schemas.schemas import MatchingRequest, MatchingResultResponse
 from app.services.france_travail import search_offers, normalize_offer
 from app.services.matching import match_candidate_to_offers
+from app.api.deps import get_current_user_db
 from sqlalchemy import func
 
 router = APIRouter()
@@ -78,6 +80,8 @@ async def _fetch_offers_with_fallback(
     request: MatchingRequest,
     profile: Any,
     candidate: Candidate,
+    client_id: str | None = None,
+    client_secret: str | None = None,
 ) -> list[dict]:
     """Récupère des offres avec élargissement progressif des critères."""
     target_count = max(3, min(request.max_results, 10))
@@ -102,6 +106,8 @@ async def _fetch_offers_with_fallback(
                     departement=departement,
                     type_contrat=request.contract_type,
                     max_results=target_count,
+                    client_id=client_id,
+                    client_secret=client_secret,
                 )
             except Exception:
                 continue
@@ -121,7 +127,7 @@ async def _fetch_offers_with_fallback(
 async def compute_matching(
     request: MatchingRequest,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
     """
     Lance le matching pour un candidat :
@@ -130,6 +136,9 @@ async def compute_matching(
     3. Calcule le score de matching via IA
     4. Sauvegarde les résultats
     """
+    # Credentials utilisateur pour France Travail
+    ft_cid = user.settings.france_travail_client_id if user.settings and user.settings.france_travail_client_id else None
+    ft_cs = user.settings.france_travail_client_secret if user.settings and user.settings.france_travail_client_secret else None
     # Récupérer le candidat et son profil
     result = await db.execute(
         select(Candidate)
@@ -150,7 +159,7 @@ async def compute_matching(
         raise HTTPException(status_code=400, detail="Aucun profil extrait pour ce CV")
 
     # Recherche progressive: d'abord ciblée, puis élargie pour garantir des propositions
-    raw_offers = await _fetch_offers_with_fallback(request, profile, candidate)
+    raw_offers = await _fetch_offers_with_fallback(request, profile, candidate, ft_cid, ft_cs)
     if not raw_offers:
         raise HTTPException(status_code=404, detail="Aucune offre trouvée (même après élargissement automatique des critères)")
 
@@ -226,7 +235,8 @@ async def compute_matching(
         profile=profile_dict,
         candidate=candidate_dict,
         offers=offers_data,
-        user_id=_user["sub"],
+        user_id=str(user.id),
+        user_settings=user.settings,
     )
 
     # Sauvegarder les résultats (avec mapping fiable offre <-> score)

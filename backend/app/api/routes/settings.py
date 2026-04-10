@@ -39,7 +39,22 @@ def _settings_to_response(s: UserSettings | None) -> UserSettingsResponse:
         ai_api_key_set=bool(s.ai_api_key),
         france_travail_client_id=s.france_travail_client_id or "",
         france_travail_secret_set=bool(s.france_travail_client_secret),
+        hunter_api_key_set=bool(s.hunter_api_key),
+        setup_completed=_is_setup_complete(s),
         totp_enabled=s.totp_enabled or False,
+    )
+
+
+def _is_setup_complete(s: UserSettings | None) -> bool:
+    """Vérifie que la configuration minimale est remplie."""
+    if not s:
+        return False
+    return bool(
+        s.first_name
+        and s.last_name
+        and s.company_name
+        and s.france_travail_client_id
+        and s.france_travail_client_secret
     )
 
 
@@ -99,6 +114,8 @@ async def update_settings(
         s.france_travail_client_id = data.france_travail_client_id.strip()
     if data.france_travail_client_secret is not None:
         s.france_travail_client_secret = data.france_travail_client_secret.strip()
+    if data.hunter_api_key is not None:
+        s.hunter_api_key = data.hunter_api_key.strip()
     if data.agency_address is not None:
         s.agency_address = data.agency_address.strip()
     if data.agency_phone is not None:

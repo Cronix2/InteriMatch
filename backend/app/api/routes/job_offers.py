@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.models import JobOffer
+from app.models.models import JobOffer, User
 from app.schemas.schemas import JobOfferResponse, JobSearchRequest
 from app.services.france_travail import search_offers, normalize_offer
+from app.api.deps import get_current_user_db
 
 router = APIRouter()
 
@@ -19,12 +20,15 @@ router = APIRouter()
 async def search_job_offers(
     request: JobSearchRequest,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
     """
     Recherche des offres d'emploi via l'API France Travail.
     Les résultats sont sauvegardés en base pour le matching.
     """
+    # Credentials utilisateur en priorité, sinon fallback global
+    ft_cid = user.settings.france_travail_client_id if user.settings and user.settings.france_travail_client_id else None
+    ft_cs = user.settings.france_travail_client_secret if user.settings and user.settings.france_travail_client_secret else None
     try:
         raw_results = await search_offers(
             keywords=request.keywords,
@@ -34,6 +38,8 @@ async def search_job_offers(
             experience=request.experience,
             distance=request.distance,
             max_results=request.max_results,
+            client_id=ft_cid,
+            client_secret=ft_cs,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erreur API France Travail : {str(e)}")

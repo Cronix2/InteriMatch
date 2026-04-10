@@ -14,21 +14,25 @@ from app.core.config import get_settings
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Cache simple du token en mémoire
-_token_cache: dict = {"access_token": None, "expires_at": 0}
+# Cache simple du token en mémoire — par clé (client_id)
+_token_cache: dict[str, dict] = {}
 
 
-async def _get_access_token() -> str:
-    """Obtient un token OAuth2 pour l'API France Travail (avec cache)."""
+async def _get_access_token(client_id: str | None = None, client_secret: str | None = None) -> str:
+    """Obtient un token OAuth2 pour l'API France Travail (avec cache par client_id)."""
+    cid = client_id or settings.france_travail_client_id
+    csecret = client_secret or settings.france_travail_client_secret
+
     now = time.time()
-    if _token_cache["access_token"] and _token_cache["expires_at"] > now + 60:
-        return _token_cache["access_token"]
+    cached = _token_cache.get(cid, {})
+    if cached.get("access_token") and cached.get("expires_at", 0) > now + 60:
+        return cached["access_token"]
 
     auth_url = settings.france_travail_auth_url
     payload = {
         "grant_type": "client_credentials",
-        "client_id": settings.france_travail_client_id,
-        "client_secret": settings.france_travail_client_secret,
+        "client_id": cid,
+        "client_secret": csecret,
         "scope": "api_offresdemploiv2 o2dsoffre",
     }
 
@@ -44,8 +48,10 @@ async def _get_access_token() -> str:
 
         data = response.json()
 
-    _token_cache["access_token"] = data["access_token"]
-    _token_cache["expires_at"] = now + data.get("expires_in", 1500)
+    _token_cache[cid] = {
+        "access_token": data["access_token"],
+        "expires_at": now + data.get("expires_in", 1500),
+    }
     return data["access_token"]
 
 
@@ -58,12 +64,14 @@ async def search_offers(
     distance: int | None = None,
     page: int = 0,
     max_results: int = 20,
+    client_id: str | None = None,
+    client_secret: str | None = None,
 ) -> dict:
     """
     Recherche des offres d'emploi sur l'API France Travail.
     Retourne les résultats bruts de l'API.
     """
-    token = await _get_access_token()
+    token = await _get_access_token(client_id, client_secret)
 
     params = {"motsCles": keywords, "range": f"{page * max_results}-{(page + 1) * max_results - 1}"}
     if commune:
@@ -105,9 +113,9 @@ async def search_offers(
         return {"resultats": [], "contentRange": {"maxResult": 0}}
 
 
-async def get_offer_detail(offer_id: str) -> dict:
+async def get_offer_detail(offer_id: str, client_id: str | None = None, client_secret: str | None = None) -> dict:
     """Récupère le détail d'une offre spécifique."""
-    token = await _get_access_token()
+    token = await _get_access_token(client_id, client_secret)
 
     async with httpx.AsyncClient() as client:
         response = await client.get(

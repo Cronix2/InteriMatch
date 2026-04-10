@@ -11,7 +11,7 @@ import {
   Download,
   AlertTriangle,
 } from "lucide-react";
-import { generateEmail, updateEmail, getMe, downloadAnonymizedCV, lookupRecruiter } from "@/lib/api";
+import { generateEmail, updateEmail, getMe, downloadAnonymizedCV, downloadEmailEml, lookupRecruiter } from "@/lib/api";
 
 interface EmailPreviewProps {
   matchingResultId: string;
@@ -80,7 +80,6 @@ export default function EmailPreview({
   const [editBody, setEditBody] = useState("");
   const [copied, setCopied] = useState(false);
   const [recruiterEmail, setRecruiterEmail] = useState<string | null>(null);
-  const [cvDownloaded, setCvDownloaded] = useState(false);
   const generatedForIdRef = useRef<string | null>(null);
   const senderInfoRef = useRef<{
     firstName: string;
@@ -131,8 +130,9 @@ export default function EmailPreview({
       try {
         const response = await generateEmail(matchingResultId);
         setEmailData(response.data);
-        // Recruiter email: from backend response or fallback to lookup
-        let rEmail = response.data.recruiter_email || null;
+        // Recruiter email: from backend response — validate it's an actual email
+        const rawEmail = response.data.recruiter_email;
+        let rEmail = (rawEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) ? rawEmail : null;
         if (!rEmail && jobOfferId) {
           try {
             const rRes = await lookupRecruiter(jobOfferId);
@@ -183,29 +183,31 @@ export default function EmailPreview({
       });
       setEmailData(response.data);
 
-      // Auto-download the anonymized CV
+      // Download .eml file with the anonymized CV attached
       if (candidateId) {
         try {
-          const res = await downloadAnonymizedCV(candidateId);
-          const url = window.URL.createObjectURL(new Blob([res.data]));
+          const res = await downloadEmailEml(emailData.id, candidateId);
+          const url = window.URL.createObjectURL(new Blob([res.data], { type: "message/rfc822" }));
           const a = document.createElement("a");
           a.href = url;
-          a.download = "cv_anonymise.pdf";
+          a.download = "email_proposition.eml";
           document.body.appendChild(a);
           a.click();
           a.remove();
           window.URL.revokeObjectURL(url);
-          setCvDownloaded(true);
         } catch {
-          // CV download failed silently
+          // Fallback to mailto: if .eml download fails
+          const to = recruiterEmail ? encodeURIComponent(recruiterEmail) : "";
+          const subject = encodeURIComponent(editSubject);
+          const body = encodeURIComponent(editBody);
+          window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
         }
+      } else {
+        const to = recruiterEmail ? encodeURIComponent(recruiterEmail) : "";
+        const subject = encodeURIComponent(editSubject);
+        const body = encodeURIComponent(editBody);
+        window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
       }
-
-      // Open default mail client with recruiter email pre-filled
-      const to = recruiterEmail ? encodeURIComponent(recruiterEmail) : "";
-      const subject = encodeURIComponent(editSubject);
-      const body = encodeURIComponent(editBody);
-      window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
     } catch {
       setError("Erreur lors de la validation");
     }
@@ -273,7 +275,23 @@ export default function EmailPreview({
                 <CheckCircle className="w-4 h-4" /> Validé
               </span>
               <button
-                onClick={() => {
+                onClick={async () => {
+                  if (candidateId && emailData) {
+                    try {
+                      const res = await downloadEmailEml(emailData.id, candidateId);
+                      const url = window.URL.createObjectURL(new Blob([res.data], { type: "message/rfc822" }));
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "email_proposition.eml";
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      window.URL.revokeObjectURL(url);
+                      return;
+                    } catch {
+                      // fallback below
+                    }
+                  }
                   const to = recruiterEmail ? encodeURIComponent(recruiterEmail) : "";
                   const subject = encodeURIComponent(editSubject);
                   const body = encodeURIComponent(editBody);
@@ -384,15 +402,6 @@ export default function EmailPreview({
         )}
       </div>
 
-      {/* Notice CV auto-download */}
-      {cvDownloaded && (
-        <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3">
-          <p className="text-sm text-blue-700 dark:text-blue-400 flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Le CV anonymisé a été téléchargé — pensez à le joindre à votre mail.
-          </p>
-        </div>
-      )}
     </div>
   );
 }

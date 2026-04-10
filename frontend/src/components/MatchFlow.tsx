@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import CVUpload from "@/components/CVUpload";
+import CVUpload, { BulkJob } from "@/components/CVUpload";
 import CandidateProfile from "@/components/CandidateProfile";
 import MatchingResults from "@/components/MatchingResults";
 import EmailPreview from "@/components/EmailPreview";
@@ -15,6 +15,7 @@ export default function MatchFlow() {
   const [profileData, setProfileData] = useState<any>(null);
   const [matchingResults, setMatchingResults] = useState<any[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
+  const [bulkJob, setBulkJob] = useState<BulkJob | null>(null);
 
   const handleStartMatching = async (cid: string) => {
     try {
@@ -76,6 +77,8 @@ export default function MatchFlow() {
             setStep("profile");
           }}
           onStartMatching={handleStartMatching}
+          bulkJob={bulkJob}
+          onBulkJobChange={setBulkJob}
         />
       )}
       {step === "profile" && profileData && (

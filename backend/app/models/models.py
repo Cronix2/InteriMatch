@@ -73,6 +73,9 @@ class UserSettings(Base):
     france_travail_client_id = Column(String(255), default="")
     france_travail_client_secret = Column(String(255), default="")
 
+    # Hunter.io
+    hunter_api_key = Column(String(255), default="")
+
     # 2FA
     totp_enabled = Column(Boolean, default=False)
     totp_secret = Column(String(255), nullable=True)

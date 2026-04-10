@@ -82,6 +82,12 @@ async def lifespan(app: FastAPI):
                     " recruiter_email VARCHAR(255)"
                 )
             )
+            await conn.execute(
+                text(
+                    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                    " hunter_api_key VARCHAR(255) DEFAULT ''"
+                )
+            )
         logger.info("Base de données initialisée")
     except Exception as e:
         logger.error("Impossible de se connecter à la base de données : %s", e)

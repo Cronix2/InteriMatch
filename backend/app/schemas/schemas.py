@@ -194,6 +194,8 @@ class UserSettingsResponse(BaseModel):
     ai_api_key_set: bool = False
     france_travail_client_id: str = ""
     france_travail_secret_set: bool = False
+    hunter_api_key_set: bool = False
+    setup_completed: bool = False
     totp_enabled: bool = False
 
 class UserProfileResponse(BaseModel):
@@ -221,6 +223,7 @@ class UserSettingsUpdate(BaseModel):
     ai_temperature: float | None = None
     france_travail_client_id: str | None = None
     france_travail_client_secret: str | None = None
+    hunter_api_key: str | None = None
 
 class PasswordChangeRequest(BaseModel):
     current_password: str

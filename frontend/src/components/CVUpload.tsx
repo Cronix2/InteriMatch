@@ -20,9 +20,11 @@ import { uploadCV, uploadBulkCV, getBulkJobStatus, pauseBulkJob, resumeBulkJob, 
 interface CVUploadProps {
   onSuccess: (data: any) => void;
   onStartMatching?: (candidateId: string) => void;
+  bulkJob: BulkJob | null;
+  onBulkJobChange: (job: BulkJob | null) => void;
 }
 
-interface BulkJob {
+export interface BulkJob {
   id: string;
   total_files: number;
   processed_files: number;
@@ -32,14 +34,14 @@ interface BulkJob {
   results: { filename: string; status: string; error?: string; candidate_name?: string; candidate_id?: string }[];
 }
 
-export default function CVUpload({ onSuccess, onStartMatching }: CVUploadProps) {
+export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJobChange }: CVUploadProps) {
   const [mode, setMode] = useState<"single" | "bulk">("single");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
 
-  // Bulk upload state
-  const [bulkJob, setBulkJob] = useState<BulkJob | null>(null);
+  // Bulk upload state — managed by parent
+  const setBulkJob = onBulkJobChange;
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Polling for bulk job status

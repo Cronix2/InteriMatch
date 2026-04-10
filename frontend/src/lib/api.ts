@@ -116,6 +116,12 @@ export const updateEmail = (
   data: { subject?: string; body?: string; status?: string }
 ) => api.put(`/emails/${emailId}`, data);
 
+export const downloadEmailEml = (emailId: string, candidateId: string) =>
+  api.get(`/emails/${emailId}/download-eml`, {
+    params: { candidate_id: candidateId },
+    responseType: "blob",
+  });
+
 // --- Settings ---
 export const getMe = () => api.get("/settings/me");
 
@@ -136,6 +142,7 @@ export const updateSettings = (data: {
   ai_temperature?: number;
   france_travail_client_id?: string;
   france_travail_client_secret?: string;
+  hunter_api_key?: string;
 }) => api.put("/settings/me", data);
 
 export const changePassword = (

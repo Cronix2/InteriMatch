@@ -51,6 +51,7 @@ async def generate_candidate_email(
     agency_info: dict | None = None,
     email_template: str = "",
     user_id: str | None = None,
+    user_settings=None,
 ) -> dict:
     """
     Génère un email professionnel pour proposer un candidat à une entreprise.
@@ -87,6 +88,7 @@ async def generate_candidate_email(
         agency_info=agency_text,
         email_template=email_template,
         user_id=user_id,
+        user_settings=user_settings,
     )
 
     return {

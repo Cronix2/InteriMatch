@@ -32,8 +32,18 @@ class ApiUsageEntry:
     user_id: str | None = None
 
 
-def get_llm() -> ChatOpenAI:
-    """Instancie le client LLM OpenAI-compatible via LangChain."""
+def get_llm(user_settings=None) -> ChatOpenAI:
+    """Instancie le client LLM OpenAI-compatible via LangChain.
+    Si user_settings fourni, utilise les clés de l'utilisateur en priorité."""
+    if user_settings and user_settings.ai_api_key:
+        return ChatOpenAI(
+            model=user_settings.ai_model or settings.ai_model,
+            base_url=user_settings.ai_base_url or settings.ai_server_url,
+            api_key=user_settings.ai_api_key,
+            temperature=user_settings.ai_temperature if user_settings.ai_temperature is not None else settings.ai_temperature,
+            max_tokens=settings.ai_max_tokens,
+            request_timeout=120,
+        )
     return ChatOpenAI(
         model=settings.ai_model,
         base_url=settings.ai_server_url,
@@ -101,9 +111,9 @@ Format attendu :
 ])
 
 
-async def extract_cv_profile(cv_text: str, user_id: str | None = None) -> dict:
+async def extract_cv_profile(cv_text: str, user_id: str | None = None, user_settings=None) -> dict:
     """Extrait les informations structurées d'un CV via le LLM."""
-    llm = get_llm()
+    llm = get_llm(user_settings)
     chain = CV_EXTRACTION_PROMPT | llm | JsonOutputParser()
     start = time.monotonic()
     try:
@@ -146,9 +156,9 @@ OFFRE D'EMPLOI :
 ])
 
 
-async def compute_ai_matching(candidate_profile: str, job_offer: str, user_id: str | None = None) -> dict:
+async def compute_ai_matching(candidate_profile: str, job_offer: str, user_id: str | None = None, user_settings=None) -> dict:
     """Calcule le score de matching candidat/offre via le LLM."""
-    llm = get_llm()
+    llm = get_llm(user_settings)
     chain = MATCHING_PROMPT | llm | JsonOutputParser()
     start = time.monotonic()
     try:
@@ -221,9 +231,10 @@ async def generate_email(
     agency_info: str = "",
     email_template: str = "",
     user_id: str | None = None,
+    user_settings=None,
 ) -> dict:
     """Génère un mail professionnel de proposition de candidat."""
-    llm = get_llm()
+    llm = get_llm(user_settings)
     chain = EMAIL_GENERATION_PROMPT | llm | JsonOutputParser()
     start = time.monotonic()
     try:

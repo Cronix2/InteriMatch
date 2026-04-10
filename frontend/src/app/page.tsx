@@ -7,6 +7,7 @@ import Dashboard from "@/components/Dashboard";
 import CVPipeline from "@/components/CVPipeline";
 import History from "@/components/History";
 import Settings from "@/components/Settings";
+import SetupWizard from "@/components/SetupWizard";
 import { getMe } from "@/lib/api";
 
 function applyThemeClass(theme: string) {
@@ -29,6 +30,7 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("interimatch_token");
@@ -38,7 +40,12 @@ export default function Home() {
     }
     // Vérifier la validité du token auprès du backend
     getMe()
-      .then(() => setIsAuthenticated(true))
+      .then((res) => {
+        setIsAuthenticated(true);
+        // Vérifier si la configuration initiale est terminée
+        const setupDone = res.data?.settings?.setup_completed ?? false;
+        setNeedsSetup(!setupDone);
+      })
       .catch((err) => {
         if (err.response?.status === 401) {
           localStorage.removeItem("interimatch_token");
@@ -69,9 +76,21 @@ export default function Home() {
     applyThemeClass(theme);
   }, []);
 
+  const handleAuthenticated = async () => {
+    setIsAuthenticated(true);
+    try {
+      const res = await getMe();
+      const setupDone = res.data?.settings?.setup_completed ?? false;
+      setNeedsSetup(!setupDone);
+    } catch {
+      // If getMe fails, don't block — assume setup is done
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem("interimatch_token");
     setIsAuthenticated(false);
+    setNeedsSetup(false);
     setPage("dashboard");
   };
 
@@ -84,7 +103,11 @@ export default function Home() {
   }
 
   if (!isAuthenticated) {
-    return <AuthScreen onAuthenticated={() => setIsAuthenticated(true)} />;
+    return <AuthScreen onAuthenticated={handleAuthenticated} />;
+  }
+
+  if (needsSetup) {
+    return <SetupWizard onComplete={() => setNeedsSetup(false)} />;
   }
 
   return (

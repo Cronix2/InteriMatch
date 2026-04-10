@@ -1,6 +1,7 @@
 """
 InteriMatch AI - Routes Recherche de recruteur
 Extrait les informations de contact du recruteur depuis les données brutes France Travail.
+Fallback sur l'API Hunter.io si aucun email n'est trouvé.
 """
 
 import re
@@ -12,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.models import JobOffer
+from app.models.models import JobOffer, User
+from app.api.deps import get_current_user_db
+from app.services.hunter import find_email_by_domain, extract_domain_from_url
 
 router = APIRouter()
 
@@ -103,9 +106,10 @@ def _extract_contact_from_raw(raw_data: dict | None) -> dict:
 async def lookup_recruiter(
     job_offer_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Recherche les informations du recruteur pour une offre donnée."""
+    """Recherche les informations du recruteur pour une offre donnée.
+    Utilise Hunter.io comme fallback si l'email n'est pas dans les données brutes."""
     result = await db.execute(
         select(JobOffer).where(JobOffer.id == job_offer_id)
     )
@@ -114,6 +118,31 @@ async def lookup_recruiter(
         raise HTTPException(status_code=404, detail="Offre introuvable")
 
     contact_info = _extract_contact_from_raw(offer.raw_data)
+
+    # Fallback Hunter.io si pas d'email trouvé dans les données brutes
+    if not contact_info.get("contact_email") and user.settings and user.settings.hunter_api_key:
+        hunter_key = user.settings.hunter_api_key
+        # Chercher un domaine à partir de l'URL entreprise ou de l'URL de candidature
+        domain = None
+        if contact_info.get("company_url"):
+            domain = extract_domain_from_url(contact_info["company_url"])
+        elif contact_info.get("application_url") and not contact_info["application_url"].startswith("mailto:"):
+            domain = extract_domain_from_url(contact_info["application_url"])
+        elif contact_info.get("source_url") and not contact_info["source_url"].startswith("mailto:"):
+            domain = extract_domain_from_url(contact_info["source_url"])
+
+        if domain:
+            # Extraire nom/prénom du contact si disponible
+            contact_name = contact_info.get("contact_name", "")
+            parts = contact_name.split() if contact_name else []
+            first_name = parts[0] if len(parts) >= 2 else None
+            last_name = parts[-1] if len(parts) >= 2 else None
+
+            hunter_result = await find_email_by_domain(hunter_key, domain, first_name, last_name)
+            if hunter_result and hunter_result.get("email"):
+                contact_info["contact_email"] = hunter_result["email"]
+                contact_info["email_source"] = hunter_result.get("source", "hunter")
+                contact_info["email_confidence"] = hunter_result.get("confidence", 0)
 
     return {
         "job_offer_id": str(offer.id),

@@ -40,6 +40,8 @@ interface SettingsData {
   ai_api_key_set: boolean;
   france_travail_client_id: string;
   france_travail_secret_set: boolean;
+  hunter_api_key_set: boolean;
+  setup_completed: boolean;
   totp_enabled: boolean;
 }
 
@@ -291,6 +293,10 @@ export default function Settings({ onThemeChange }: SettingsProps) {
   // Modèle d'email
   const [emailTemplate, setEmailTemplate] = useState("");
 
+  // Hunter.io
+  const [hunterApiKey, setHunterApiKey] = useState("");
+  const [hunterKeySet, setHunterKeySet] = useState(false);
+
   // 2FA
   const [totpEnabled, setTotpEnabled] = useState(false);
 
@@ -316,6 +322,7 @@ export default function Settings({ onThemeChange }: SettingsProps) {
         setAgencyEmail(s.agency_email || "");
         setAgencySiret(s.agency_siret || "");
         setEmailTemplate(s.email_template || "");
+        setHunterKeySet(s.hunter_api_key_set);
         setTotpEnabled(s.totp_enabled);
       } catch {
         setError("Impossible de charger les paramètres");
@@ -416,6 +423,24 @@ export default function Settings({ onThemeChange }: SettingsProps) {
         setFtSecret("");
       }
       flash("Paramètres France Travail sauvegardés");
+    } catch {
+      flashError("Erreur de sauvegarde");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveHunter = async () => {
+    setSaving(true);
+    try {
+      const data: any = {};
+      if (hunterApiKey) data.hunter_api_key = hunterApiKey;
+      await updateSettings(data);
+      if (hunterApiKey) {
+        setHunterKeySet(true);
+        setHunterApiKey("");
+      }
+      flash("Clé Hunter.io sauvegardée");
     } catch {
       flashError("Erreur de sauvegarde");
     } finally {
@@ -823,6 +848,48 @@ export default function Settings({ onThemeChange }: SettingsProps) {
             </div>
           </div>
           <button onClick={handleSaveFT} disabled={saving} className={btnPrimary}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Enregistrer
+          </button>
+        </div>
+
+        {/* ─── Hunter.io API ──────────────────────────── */}
+        <div className={sectionCls}>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Mail className="w-5 h-5" />
+            Hunter.io (recherche d&apos;emails)
+            {hunterKeySet && (
+              <span className="ml-auto text-xs font-medium px-2.5 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
+                <Check className="w-3 h-3" /> Configuré
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Permet de trouver automatiquement l&apos;email du recruteur quand il n&apos;est pas disponible dans l&apos;offre.
+            Créez un compte sur{" "}
+            <a href="https://hunter.io" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">
+              hunter.io
+            </a>{" "}
+            pour obtenir une clé API (50 recherches/mois gratuites).
+          </p>
+          <div className="mb-4">
+            <label className={labelCls}>
+              Clé API Hunter.io{" "}
+              {hunterKeySet && <span className="text-green-600 dark:text-green-400 text-xs ml-1">✓ configurée</span>}
+            </label>
+            <input
+              type="password"
+              className={inputCls}
+              value={hunterApiKey}
+              onChange={(e) => setHunterApiKey(e.target.value)}
+              placeholder={
+                hunterKeySet
+                  ? "••••••••• (laisser vide pour garder)"
+                  : "Entrer la clé API Hunter.io"
+              }
+            />
+          </div>
+          <button onClick={handleSaveHunter} disabled={saving} className={btnPrimary}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Enregistrer
           </button>

@@ -20,11 +20,22 @@ import {
   listPipelineCandidates,
   updateCandidateStatus,
   getCandidateProfile,
+  getBulkJobStatus,
 } from "@/lib/api";
 
 type View = "table" | "matching" | "email";
 
 type PipelineStatus = "pending" | "matching" | "email" | "completed";
+
+interface BulkJob {
+  id: string;
+  total_files: number;
+  processed_files: number;
+  successful_files: number;
+  failed_files: number;
+  status: string;
+  results: { filename: string; status: string; error?: string; candidate_name?: string; candidate_id?: string }[];
+}
 
 interface PipelineCandidate {
   id: string;
@@ -79,6 +90,9 @@ export default function CVPipeline() {
   const [filter, setFilter] = useState<PipelineStatus | "all">("all");
   const [showUpload, setShowUpload] = useState(false);
 
+  // Bulk upload state (lifted from CVUpload to persist across view changes)
+  const [bulkJob, setBulkJob] = useState<BulkJob | null>(null);
+
   // Current candidate processing state
   const [currentCandidate, setCurrentCandidate] =
     useState<PipelineCandidate | null>(null);
@@ -88,6 +102,7 @@ export default function CVPipeline() {
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bulkPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const silentUpdateStatus = async (id: string, status: string) => {
     try { await updateCandidateStatus(id, status); } catch { /* non-blocking */ }
@@ -116,6 +131,29 @@ export default function CVPipeline() {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [view, loadCandidates]);
+
+  // Bulk job polling (persists across view changes)
+  useEffect(() => {
+    if (bulkJob && (bulkJob.status === "processing" || bulkJob.status === "paused") && !showUpload) {
+      bulkPollingRef.current = setInterval(async () => {
+        try {
+          const res = await getBulkJobStatus(bulkJob.id);
+          setBulkJob(res.data);
+          if (res.data.status === "completed" || res.data.status === "cancelled") {
+            if (bulkPollingRef.current) clearInterval(bulkPollingRef.current);
+            if (res.data.status === "completed") {
+              loadCandidates();
+            }
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }, 2000);
+    }
+    return () => {
+      if (bulkPollingRef.current) clearInterval(bulkPollingRef.current);
+    };
+  }, [bulkJob?.id, bulkJob?.status, showUpload, loadCandidates]);
 
   const handleSelectCandidate = async (candidate: PipelineCandidate) => {
     setCurrentCandidate(candidate);
@@ -335,7 +373,37 @@ export default function CVPipeline() {
         <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
           <CVUpload
             onSuccess={handleUploadSuccess}
+            bulkJob={bulkJob}
+            onBulkJobChange={setBulkJob}
           />
+        </div>
+      )}
+
+      {/* Bulk progress bar (visible even when upload panel is closed) */}
+      {!showUpload && bulkJob && (bulkJob.status === "processing" || bulkJob.status === "paused") && (
+        <div className="mb-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 px-5 py-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-700 dark:text-gray-300 font-medium flex items-center gap-2">
+              {bulkJob.status === "processing" ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-primary-500" />
+              ) : (
+                <Clock className="w-4 h-4 text-amber-500" />
+              )}
+              Import en cours : {bulkJob.processed_files}/{bulkJob.total_files} CV
+            </span>
+            <button
+              onClick={() => setShowUpload(true)}
+              className="text-primary-600 hover:text-primary-700 text-xs font-medium"
+            >
+              Voir les détails
+            </button>
+          </div>
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-2">
+            <div
+              className="bg-primary-600 h-1.5 rounded-full transition-all duration-500"
+              style={{ width: `${Math.round((bulkJob.processed_files / Math.max(bulkJob.total_files, 1)) * 100)}%` }}
+            />
+          </div>
         </div>
       )}
 

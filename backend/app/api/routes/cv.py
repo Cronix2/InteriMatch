@@ -15,9 +15,10 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.models import Candidate, Resume, ExtractedProfile
+from app.models.models import Candidate, Resume, ExtractedProfile, User
 from app.schemas.schemas import CVUploadResponse, ExtractedProfileResponse
 from app.services.cv_parser import parse_cv
+from app.api.deps import get_current_user_db
 
 from fpdf import FPDF
 
@@ -31,7 +32,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 async def upload_cv(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
     """
     Upload un CV, extrait le texte, analyse via IA, crée le candidat et le profil.
@@ -60,7 +61,7 @@ async def upload_cv(
 
     # Parsing du CV via IA
     try:
-        parsed = await parse_cv(file_bytes, file.filename, user_id=user["sub"])
+        parsed = await parse_cv(file_bytes, file.filename, user_id=str(user.id), user_settings=user.settings)
     except ValueError as e:
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(e))
@@ -79,7 +80,7 @@ async def upload_cv(
         location=profile_data.get("location"),
         availability=profile_data.get("availability"),
         processing_status="pending",
-        created_by=uuid.UUID(user["sub"]),
+        created_by=user.id,
     )
     db.add(candidate)
     await db.flush()
