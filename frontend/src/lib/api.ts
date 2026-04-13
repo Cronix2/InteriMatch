@@ -52,9 +52,11 @@ export const disable2FA = (code: string) =>
   api.post("/auth/2fa/disable", { code });
 
 // --- CV ---
-export const uploadCV = (file: File) => {
+export const uploadCV = (file: File, force?: string, duplicateCandidateId?: string) => {
   const formData = new FormData();
   formData.append("file", file);
+  if (force) formData.append("force", force);
+  if (duplicateCandidateId) formData.append("duplicate_candidate_id", duplicateCandidateId);
   return api.post("/cv/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
@@ -78,6 +80,9 @@ export const listPipelineCandidates = () => api.get("/candidates/pipeline");
 
 export const updateCandidateStatus = (candidateId: string, status: string) =>
   api.put(`/candidates/${candidateId}/processing-status`, { status });
+
+export const deleteCandidate = (candidateId: string) =>
+  api.delete(`/candidates/${candidateId}`);
 
 // --- Offres ---
 export const searchJobOffers = (params: {
@@ -121,6 +126,15 @@ export const downloadEmailEml = (emailId: string, candidateId: string) =>
     params: { candidate_id: candidateId },
     responseType: "blob",
   });
+
+export const getCompanyContacts = (domain: string) =>
+  api.get(`/emails/company-contacts/${encodeURIComponent(domain)}`);
+
+export const getCompanyContactsByName = (companyName: string) =>
+  api.get(`/emails/company-contacts-by-name`, { params: { company: companyName } });
+
+export const updateEmailRecipients = (emailId: string, recruiterEmail: string) =>
+  api.put(`/emails/${emailId}/recipients`, { recruiter_email: recruiterEmail });
 
 // --- Settings ---
 export const getMe = () => api.get("/settings/me");

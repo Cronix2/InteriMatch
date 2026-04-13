@@ -88,6 +88,18 @@ async def lifespan(app: FastAPI):
                     " hunter_api_key VARCHAR(255) DEFAULT ''"
                 )
             )
+            await conn.execute(
+                text(
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS"
+                    " face_encoding JSON"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS"
+                    " updated_at TIMESTAMPTZ DEFAULT NOW()"
+                )
+            )
         logger.info("Base de données initialisée")
     except Exception as e:
         logger.error("Impossible de se connecter à la base de données : %s", e)

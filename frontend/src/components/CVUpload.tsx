@@ -14,6 +14,8 @@ import {
   Pause,
   Play,
   Square,
+  UserCheck,
+  UserPlus,
 } from "lucide-react";
 import { uploadCV, uploadBulkCV, getBulkJobStatus, pauseBulkJob, resumeBulkJob, cancelBulkJob } from "@/lib/api";
 
@@ -39,6 +41,12 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+
+  // Duplicate detection state
+  const [duplicateInfo, setDuplicateInfo] = useState<{
+    existing_candidate: { candidate_id: string; candidate_name: string; match_reasons: string[]; similarity: number; created_at: string | null };
+    file: File;
+  } | null>(null);
 
   // Bulk upload state — managed by parent
   const setBulkJob = onBulkJobChange;
@@ -76,10 +84,19 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
       setFileName(file.name);
       setLoading(true);
       setError(null);
+      setDuplicateInfo(null);
 
       try {
         const response = await uploadCV(file);
-        onSuccess(response.data);
+        // HTTP 209 = duplicate detected
+        if (response.status === 209 && response.data.duplicate) {
+          setDuplicateInfo({
+            existing_candidate: response.data.existing_candidate,
+            file,
+          });
+        } else {
+          onSuccess(response.data);
+        }
       } catch (err: any) {
         setError(
           err.response?.data?.detail ||
@@ -91,6 +108,41 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
     },
     [onSuccess]
   );
+
+  const handleDuplicateUpdate = async () => {
+    if (!duplicateInfo) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await uploadCV(
+        duplicateInfo.file,
+        "update",
+        duplicateInfo.existing_candidate.candidate_id,
+      );
+      setDuplicateInfo(null);
+      onSuccess(response.data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Erreur lors de la mise à jour");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDuplicateCreateNew = async () => {
+    if (!duplicateInfo) return;
+    setLoading(true);
+    setError(null);
+    try {
+      // force=new bypasses dedup
+      const response = await uploadCV(duplicateInfo.file, "new");
+      setDuplicateInfo(null);
+      onSuccess(response.data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Erreur lors de la création");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const onDropBulk = useCallback(
     async (acceptedFiles: File[]) => {
@@ -199,6 +251,51 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
           </button>
         </div>
       </div>
+
+      {/* Duplicate detected banner */}
+      {duplicateInfo && (
+        <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-6 h-6 text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-base font-semibold text-amber-800 dark:text-amber-300 mb-1">
+                Candidat similaire détecté
+              </h3>
+              <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
+                <strong>{duplicateInfo.existing_candidate.candidate_name}</strong> semble correspondre au CV importé.
+                {duplicateInfo.existing_candidate.match_reasons.includes("name") && " (même nom)"}
+                {duplicateInfo.existing_candidate.match_reasons.includes("face") && " (reconnaissance faciale)"}
+                {duplicateInfo.existing_candidate.match_reasons.includes("career") && " (parcours similaire)"}
+                {" — "}Similarité : {Math.round(duplicateInfo.existing_candidate.similarity * 100)}%
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleDuplicateUpdate}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 transition-colors font-medium disabled:opacity-50"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  Mettre à jour le candidat existant
+                </button>
+                <button
+                  onClick={handleDuplicateCreateNew}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium disabled:opacity-50"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Créer un nouveau candidat
+                </button>
+                <button
+                  onClick={() => setDuplicateInfo(null)}
+                  className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dropzone */}
       <div

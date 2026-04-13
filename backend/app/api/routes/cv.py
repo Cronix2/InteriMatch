@@ -6,8 +6,8 @@ import io
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,7 @@ from app.core.security import get_current_user
 from app.models.models import Candidate, Resume, ExtractedProfile, User
 from app.schemas.schemas import CVUploadResponse, ExtractedProfileResponse
 from app.services.cv_parser import parse_cv
+from app.services.candidate_dedup import find_duplicate, extract_face_encoding_from_pdf
 from app.api.deps import get_current_user_db
 
 from fpdf import FPDF
@@ -28,9 +29,11 @@ router = APIRouter()
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 
 
-@router.post("/upload", response_model=CVUploadResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_cv(
     file: UploadFile = File(...),
+    force: str | None = Form(default=None),
+    duplicate_candidate_id: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user_db),
 ):
@@ -71,19 +74,72 @@ async def upload_cv(
 
     profile_data = parsed["profile"]
 
-    # Création du candidat
-    candidate = Candidate(
-        first_name=profile_data.get("first_name", ""),
-        last_name=profile_data.get("last_name", ""),
-        email=profile_data.get("email"),
-        phone=profile_data.get("phone"),
-        location=profile_data.get("location"),
-        availability=profile_data.get("availability"),
-        processing_status="pending",
-        created_by=user.id,
-    )
-    db.add(candidate)
-    await db.flush()
+    # Face encoding for dedup (PDF only)
+    face_encoding = None
+    if suffix == ".pdf":
+        try:
+            face_encoding = extract_face_encoding_from_pdf(file_bytes)
+        except Exception:
+            pass
+
+    # Dedup check — unless force is set
+    if force not in ("update", "new"):
+        dup = await find_duplicate(
+            db,
+            user_id=user.id,
+            new_profile=profile_data,
+            first_name=profile_data.get("first_name", ""),
+            last_name=profile_data.get("last_name", ""),
+            face_encoding=face_encoding,
+        )
+        if dup:
+            return JSONResponse(
+                status_code=209,
+                content={
+                    "duplicate": True,
+                    "existing_candidate": dup,
+                    "temp_file_path": str(file_path),
+                    "file_name": file.filename,
+                    "message": "Un candidat similaire existe déjà.",
+                },
+            )
+
+    # Update existing candidate or create new one
+    if force == "update" and duplicate_candidate_id:
+        cid = uuid.UUID(duplicate_candidate_id)
+        result = await db.execute(
+            select(Candidate)
+            .options(selectinload(Candidate.resumes).selectinload(Resume.extracted_profile))
+            .where(Candidate.id == cid, Candidate.created_by == user.id)
+        )
+        candidate = result.scalar_one_or_none()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidat introuvable pour mise à jour")
+        # Update candidate info
+        candidate.first_name = profile_data.get("first_name", "") or candidate.first_name
+        candidate.last_name = profile_data.get("last_name", "") or candidate.last_name
+        candidate.email = profile_data.get("email") or candidate.email
+        candidate.phone = profile_data.get("phone") or candidate.phone
+        candidate.location = profile_data.get("location") or candidate.location
+        candidate.availability = profile_data.get("availability") or candidate.availability
+        candidate.processing_status = "pending"
+        if face_encoding:
+            candidate.face_encoding = face_encoding
+    else:
+        # Création du candidat
+        candidate = Candidate(
+            first_name=profile_data.get("first_name", ""),
+            last_name=profile_data.get("last_name", ""),
+            email=profile_data.get("email"),
+            phone=profile_data.get("phone"),
+            location=profile_data.get("location"),
+            availability=profile_data.get("availability"),
+            processing_status="pending",
+            created_by=user.id,
+            face_encoding=face_encoding,
+        )
+        db.add(candidate)
+        await db.flush()
 
     # Création du CV
     resume = Resume(

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Filter,
   Users,
+  Trash2,
 } from "lucide-react";
 import CVUpload from "@/components/CVUpload";
 import MatchingResults from "@/components/MatchingResults";
@@ -21,6 +22,7 @@ import {
   updateCandidateStatus,
   getCandidateProfile,
   getBulkJobStatus,
+  deleteCandidate,
 } from "@/lib/api";
 
 type View = "table" | "matching" | "email";
@@ -92,6 +94,7 @@ export default function CVPipeline() {
 
   // Bulk upload state (lifted from CVUpload to persist across view changes)
   const [bulkJob, setBulkJob] = useState<BulkJob | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Current candidate processing state
   const [currentCandidate, setCurrentCandidate] =
@@ -214,6 +217,19 @@ export default function CVPipeline() {
     setLoading(true);
     await loadCandidates();
     setLoading(false);
+  };
+
+  const handleDelete = async (candidateId: string, candidateName: string) => {
+    if (!confirm(`Supprimer ${candidateName} de la pipeline ? Cette action est irréversible.`)) return;
+    setDeletingId(candidateId);
+    try {
+      await deleteCandidate(candidateId);
+      setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+    } catch {
+      // silently fail
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const filtered =
@@ -540,17 +556,34 @@ export default function CVPipeline() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectCandidate(candidate);
-                        }}
-                        className="px-3 py-1.5 text-xs font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                      >
-                        {candidate.processing_status === "completed"
-                          ? "Revoir"
-                          : "Traiter"}
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(candidate.id, `${candidate.first_name} ${candidate.last_name}`);
+                          }}
+                          disabled={deletingId === candidate.id}
+                          className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+                          title="Supprimer"
+                        >
+                          {deletingId === candidate.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectCandidate(candidate);
+                          }}
+                          className="px-3 py-1.5 text-xs font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                        >
+                          {candidate.processing_status === "completed"
+                            ? "Revoir"
+                            : "Traiter"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

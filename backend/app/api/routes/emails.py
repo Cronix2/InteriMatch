@@ -31,6 +31,7 @@ from app.models.models import (
     User,
     UserSettings,
     SentProposal,
+    CompanyContact,
 )
 from app.schemas.schemas import (
     GeneratedEmailResponse,
@@ -40,19 +41,25 @@ from app.schemas.schemas import (
 from app.services.email_generator import generate_candidate_email
 from app.api.deps import get_current_user_db
 from app.api.routes.recruiter import _extract_contact_from_raw
-from app.services.hunter import find_email_by_domain, extract_domain_from_url
+from app.services.hunter import find_email_by_domain, extract_domain_from_url, fetch_company_contacts, clean_company_name
 
 router = APIRouter()
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Domains that are job boards — useless to query Hunter.io with
-_JOB_BOARD_DOMAINS = {
+_JOB_BOARD_ROOTS = [
     "francetravail.fr", "pole-emploi.fr", "indeed.com", "linkedin.com",
     "hellowork.com", "apec.fr", "monster.fr", "meteojob.com",
     "cadreemploi.fr", "jobteaser.com", "welcometothejungle.com",
     "regionsjob.com", "cadremploi.fr", "jobijoba.com",
-}
+]
+
+
+def _is_job_board_domain(domain: str) -> bool:
+    """Check if a domain belongs to a job board (including subdomains like candidat.francetravail.fr)."""
+    d = domain.lower().strip()
+    return any(d == jb or d.endswith(f".{jb}") for jb in _JOB_BOARD_ROOTS)
 
 
 def _is_valid_email(value: str | None) -> bool:
@@ -67,13 +74,13 @@ async def _hunter_lookup(user_settings, recruiter_contact: dict) -> str | None:
     # Prefer company_url (the company's own site) over application_url (job board)
     if recruiter_contact.get("company_url"):
         d = extract_domain_from_url(recruiter_contact["company_url"])
-        if d and d not in _JOB_BOARD_DOMAINS:
+        if d and not _is_job_board_domain(d):
             domain = d
     if not domain and recruiter_contact.get("application_url"):
         url = recruiter_contact["application_url"]
         if not url.startswith("mailto:"):
             d = extract_domain_from_url(url)
-            if d and d not in _JOB_BOARD_DOMAINS:
+            if d and not _is_job_board_domain(d):
                 domain = d
     if not domain:
         return None
@@ -177,17 +184,23 @@ async def generate_email(
         }
 
     # Générer le mail via IA
-    email_data = await generate_candidate_email(
-        profile=profile_dict,
-        candidate=candidate_dict,
-        offer=offer_dict,
-        match_score=match.global_score,
-        match_explanation=match.explanation or "",
-        agency_info=agency_info,
-        email_template=user.settings.email_template if user.settings else "",
-        user_id=str(user.id),
-        user_settings=user.settings,
-    )
+    try:
+        email_data = await generate_candidate_email(
+            profile=profile_dict,
+            candidate=candidate_dict,
+            offer=offer_dict,
+            match_score=match.global_score,
+            match_explanation=match.explanation or "",
+            agency_info=agency_info,
+            email_template=user.settings.email_template if user.settings else "",
+            user_id=str(user.id),
+            user_settings=user.settings,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erreur du service IA lors de la génération de l'email : {exc}",
+        )
 
     # Extraire l'email du recruteur depuis les données brutes de l'offre
     recruiter_contact = _extract_contact_from_raw(
@@ -224,7 +237,195 @@ async def generate_email(
         if existing_after_race:
             return existing_after_race
         raise
+
     return generated_email
+
+
+@router.get("/company-contacts-by-name")
+async def get_company_contacts_by_name(
+    company: str = Query(..., min_length=1),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_db),
+):
+    """
+    Recherche les contacts d'une entreprise par nom via Hunter.io.
+    Étape 1 : nettoie le nom brut (ex: "SYNERGIE - voir rce 26000799" → "SYNERGIE").
+    Étape 2 : Hunter résout le domaine (ex: "SYNERGIE" → synergie.fr).
+    Étape 3 : Hunter retourne les contacts du domaine trouvé.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Step 1 — Clean the company name from France Travail noise
+    raw_company = company.strip()
+    company = clean_company_name(raw_company)
+    logger.info("Company name cleaned: '%s' -> '%s'", raw_company, company)
+    if not company:
+        return {"cleaned_name": raw_company, "domain": None, "contacts": []}
+
+    # Check cache: look for any domain that matches this company name
+    result = await db.execute(
+        select(CompanyContact).where(
+            CompanyContact.company_name.ilike(f"%{company}%"),
+            CompanyContact.fetched_by == user.id,
+        )
+    )
+    cached = result.scalars().all()
+    if cached:
+        logger.info("Found %d cached contacts for company '%s'", len(cached), company)
+        # Infer domain from cache
+        cached_domain = cached[0].domain if cached else None
+        return {
+            "cleaned_name": company,
+            "domain": cached_domain,
+            "contacts": [
+                {
+                    "id": str(c.id),
+                    "email": c.email,
+                    "first_name": c.first_name,
+                    "last_name": c.last_name,
+                    "position": c.position,
+                    "department": c.department,
+                    "confidence": c.confidence,
+                    "company_name": c.company_name,
+                }
+                for c in cached
+            ],
+        }
+
+    # No cache — call Hunter.io by company name
+    # Step 2: Hunter resolves company name → domain
+    # Step 3: Hunter returns contacts at that domain
+    if not (user.settings and user.settings.hunter_api_key):
+        logger.warning("No Hunter API key configured for user %s", user.id)
+        return {"cleaned_name": company, "domain": None, "contacts": []}
+
+    logger.info("Calling Hunter.io domain-search by company name: '%s'", company)
+    result_data = await fetch_company_contacts(
+        user.settings.hunter_api_key, company_name=company
+    )
+    contacts = result_data.get("contacts", [])
+    organization = result_data.get("organization", "") or company
+    resolved_domain = result_data.get("domain", "")
+    logger.info(
+        "Hunter returned %d contacts, org=%s, domain=%s for company '%s'",
+        len(contacts), organization, resolved_domain, company,
+    )
+
+    if not contacts:
+        return {"cleaned_name": company, "domain": resolved_domain or None, "contacts": []}
+
+    # Save to cache (use the domain Hunter resolved)
+    cache_domain = resolved_domain or company.lower().replace(" ", "")
+    saved = []
+    for c in contacts:
+        cc = CompanyContact(
+            domain=cache_domain,
+            email=c["email"],
+            first_name=c.get("first_name", ""),
+            last_name=c.get("last_name", ""),
+            position=c.get("position", ""),
+            department=c.get("department", ""),
+            confidence=c.get("confidence", 0),
+            company_name=organization,
+            fetched_by=user.id,
+        )
+        db.add(cc)
+        saved.append({
+            "email": c["email"],
+            "first_name": c.get("first_name", ""),
+            "last_name": c.get("last_name", ""),
+            "position": c.get("position", ""),
+            "department": c.get("department", ""),
+            "confidence": c.get("confidence", 0),
+            "company_name": organization,
+        })
+    await db.flush()
+
+    return {"cleaned_name": company, "domain": resolved_domain or cache_domain, "contacts": saved}
+
+
+@router.get("/company-contacts/{domain}")
+async def get_company_contacts(
+    domain: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_db),
+):
+    """
+    Récupère les contacts d'une entreprise (cache DB ou Hunter.io).
+    Retourne une liste de contacts avec email, nom, position, département.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    domain = domain.strip().lower()
+    logger.info("Company contacts request for domain: %s", domain)
+
+    # Check cache first
+    result = await db.execute(
+        select(CompanyContact).where(
+            CompanyContact.domain == domain,
+            CompanyContact.fetched_by == user.id,
+        )
+    )
+    cached = result.scalars().all()
+    if cached:
+        logger.info("Found %d cached contacts for %s", len(cached), domain)
+        return [
+            {
+                "id": str(c.id),
+                "email": c.email,
+                "first_name": c.first_name,
+                "last_name": c.last_name,
+                "position": c.position,
+                "department": c.department,
+                "confidence": c.confidence,
+                "company_name": c.company_name,
+            }
+            for c in cached
+        ]
+
+    # No cache — call Hunter.io
+    if not (user.settings and user.settings.hunter_api_key):
+        logger.warning("No Hunter API key configured for user %s", user.id)
+        return []
+
+    logger.info("Calling Hunter.io domain-search for %s", domain)
+    result_data = await fetch_company_contacts(user.settings.hunter_api_key, domain)
+    contacts = result_data.get("contacts", [])
+    organization = result_data.get("organization", "")
+    logger.info("Hunter returned %d contacts, org=%s for %s", len(contacts), organization, domain)
+
+    if not contacts:
+        return []
+
+    # Save to cache
+    saved = []
+    for c in contacts:
+        cc = CompanyContact(
+            domain=domain,
+            email=c["email"],
+            first_name=c.get("first_name", ""),
+            last_name=c.get("last_name", ""),
+            position=c.get("position", ""),
+            department=c.get("department", ""),
+            confidence=c.get("confidence", 0),
+            company_name=organization,
+            fetched_by=user.id,
+        )
+        db.add(cc)
+        saved.append({
+            "email": c["email"],
+            "first_name": c.get("first_name", ""),
+            "last_name": c.get("last_name", ""),
+            "position": c.get("position", ""),
+            "department": c.get("department", ""),
+            "confidence": c.get("confidence", 0),
+            "company_name": organization,
+        })
+    await db.flush()
+
+    return saved
 
 
 @router.get("/{email_id}", response_model=GeneratedEmailResponse)
@@ -431,3 +632,23 @@ async def download_email_eml(
         media_type="message/rfc822",
         headers={"Content-Disposition": "attachment; filename=email_proposition.eml"},
     )
+
+
+@router.put("/{email_id}/recipients")
+async def update_email_recipients(
+    email_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Met à jour le(s) destinataire(s) de l'email (chaîne, éventuellement plusieurs séparés par des virgules)."""
+    result = await db.execute(select(GeneratedEmail).where(GeneratedEmail.id == email_id))
+    email_record = result.scalar_one_or_none()
+    if not email_record:
+        raise HTTPException(status_code=404, detail="Email introuvable")
+
+    recipients = body.get("recruiter_email", "")
+    email_record.recruiter_email = recipients
+    await db.flush()
+    await db.refresh(email_record)
+    return {"recruiter_email": email_record.recruiter_email}

@@ -98,7 +98,9 @@ class Candidate(Base):
     location = Column(String(255))
     availability = Column(String(100))
     processing_status = Column(String(20), default="pending")  # pending, matching, email, completed
+    face_encoding = Column(JSON, nullable=True)  # 128-d face encoding for dedup
     created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
@@ -275,3 +277,21 @@ class SentProposal(Base):
     job_offer = relationship("JobOffer")
     candidate = relationship("Candidate")
     email = relationship("GeneratedEmail")
+
+
+# ─── Contacts entreprise (cache Hunter.io) ──────────────────────────────────
+
+class CompanyContact(Base):
+    __tablename__ = "company_contacts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    domain = Column(String(255), nullable=False, index=True)
+    email = Column(String(255), nullable=False)
+    first_name = Column(String(100), default="")
+    last_name = Column(String(100), default="")
+    position = Column(String(255), default="")
+    department = Column(String(100), default="")
+    confidence = Column(Integer, default=0)
+    company_name = Column(String(255), default="")
+    fetched_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    fetched_at = Column(DateTime(timezone=True), default=utcnow)
