@@ -22,7 +22,7 @@ import {
   ShieldCheck,
   ShieldOff,
 } from "lucide-react";
-import { getMe, updateSettings, changePassword, setup2FA, verify2FA, disable2FA } from "@/lib/api";
+import { getMe, updateSettings, changePassword, setup2FA, verify2FA, disable2FA, getAiProviders } from "@/lib/api";
 
 interface SettingsData {
   first_name: string;
@@ -34,6 +34,7 @@ interface SettingsData {
   agency_email: string;
   agency_siret: string;
   email_template: string;
+  ai_provider: string;
   ai_model: string;
   ai_base_url: string;
   ai_temperature: number | null;
@@ -41,6 +42,12 @@ interface SettingsData {
   france_travail_client_id: string;
   france_travail_secret_set: boolean;
   hunter_api_key_set: boolean;
+  smtp_host: string;
+  smtp_port: number | null;
+  smtp_user: string;
+  smtp_password_set: boolean;
+  smtp_use_tls: boolean;
+  smtp_from: string;
   setup_completed: boolean;
   totp_enabled: boolean;
 }
@@ -273,6 +280,10 @@ export default function Settings({ onThemeChange }: SettingsProps) {
   const [pwdSaving, setPwdSaving] = useState(false);
 
   // IA
+  const [aiProvider, setAiProvider] = useState("custom");
+  const [aiProviders, setAiProviders] = useState<
+    { id: string; label: string; base_url: string; default_model: string; requires_key: boolean; docs: string }[]
+  >([]);
   const [aiModel, setAiModel] = useState("");
   const [aiBaseUrl, setAiBaseUrl] = useState("");
   const [aiTemp, setAiTemp] = useState("");
@@ -297,6 +308,15 @@ export default function Settings({ onThemeChange }: SettingsProps) {
   const [hunterApiKey, setHunterApiKey] = useState("");
   const [hunterKeySet, setHunterKeySet] = useState(false);
 
+  // SMTP
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState<string>("");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpPasswordSet, setSmtpPasswordSet] = useState(false);
+  const [smtpUseTls, setSmtpUseTls] = useState(true);
+  const [smtpFrom, setSmtpFrom] = useState("");
+
   // 2FA
   const [totpEnabled, setTotpEnabled] = useState(false);
 
@@ -315,6 +335,7 @@ export default function Settings({ onThemeChange }: SettingsProps) {
         setAiBaseUrl(s.ai_base_url || "");
         setAiTemp(s.ai_temperature != null ? String(s.ai_temperature) : "");
         setAiKeySet(s.ai_api_key_set);
+        setAiProvider(s.ai_provider || "custom");
         setFtClientId(s.france_travail_client_id);
         setFtSecretSet(s.france_travail_secret_set);
         setAgencyAddress(s.agency_address || "");
@@ -323,6 +344,12 @@ export default function Settings({ onThemeChange }: SettingsProps) {
         setAgencySiret(s.agency_siret || "");
         setEmailTemplate(s.email_template || "");
         setHunterKeySet(s.hunter_api_key_set);
+        setSmtpHost(s.smtp_host || "");
+        setSmtpPort(s.smtp_port != null ? String(s.smtp_port) : "");
+        setSmtpUser(s.smtp_user || "");
+        setSmtpPasswordSet(s.smtp_password_set);
+        setSmtpUseTls(s.smtp_use_tls);
+        setSmtpFrom(s.smtp_from || "");
         setTotpEnabled(s.totp_enabled);
       } catch {
         setError("Impossible de charger les paramètres");
@@ -331,6 +358,13 @@ export default function Settings({ onThemeChange }: SettingsProps) {
       }
     };
     load();
+  }, []);
+
+  // Charge la liste des providers IA disponibles (presets)
+  useEffect(() => {
+    getAiProviders()
+      .then((res) => setAiProviders(res.data || []))
+      .catch(() => {});
   }, []);
 
   const flash = (msg: string) => {
@@ -396,7 +430,11 @@ export default function Settings({ onThemeChange }: SettingsProps) {
   const handleSaveAI = async () => {
     setSaving(true);
     try {
-      const data: any = { ai_model: aiModel, ai_base_url: aiBaseUrl };
+      const data: any = {
+        ai_provider: aiProvider,
+        ai_model: aiModel,
+        ai_base_url: aiBaseUrl,
+      };
       if (aiTemp) data.ai_temperature = parseFloat(aiTemp);
       if (aiApiKey) data.ai_api_key = aiApiKey;
       await updateSettings(data);
@@ -445,6 +483,60 @@ export default function Settings({ onThemeChange }: SettingsProps) {
       flashError("Erreur de sauvegarde");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveSmtp = async () => {
+    setSaving(true);
+    try {
+      const data: any = {
+        smtp_host: smtpHost.trim(),
+        smtp_user: smtpUser.trim(),
+        smtp_use_tls: smtpUseTls,
+        smtp_from: smtpFrom.trim(),
+      };
+      if (smtpPort.trim() !== "") {
+        const p = parseInt(smtpPort, 10);
+        if (Number.isNaN(p) || p < 1 || p > 65535) {
+          flashError("Port SMTP invalide");
+          setSaving(false);
+          return;
+        }
+        data.smtp_port = p;
+      } else {
+        data.smtp_port = null;
+      }
+      if (smtpPassword) data.smtp_password = smtpPassword;
+      await updateSettings(data);
+      if (smtpPassword) {
+        setSmtpPasswordSet(true);
+        setSmtpPassword("");
+      }
+      flash("Paramètres SMTP sauvegardés");
+    } catch {
+      flashError("Erreur de sauvegarde");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApplySmtpPreset = (preset: "gmail" | "ovh" | "outlook" | "ionos") => {
+    if (preset === "gmail") {
+      setSmtpHost("smtp.gmail.com");
+      setSmtpPort("587");
+      setSmtpUseTls(true);
+    } else if (preset === "ovh") {
+      setSmtpHost("ssl0.ovh.net");
+      setSmtpPort("587");
+      setSmtpUseTls(true);
+    } else if (preset === "outlook") {
+      setSmtpHost("smtp.office365.com");
+      setSmtpPort("587");
+      setSmtpUseTls(true);
+    } else if (preset === "ionos") {
+      setSmtpHost("smtp.ionos.fr");
+      setSmtpPort("465");
+      setSmtpUseTls(true);
     }
   };
 
@@ -758,13 +850,62 @@ export default function Settings({ onThemeChange }: SettingsProps) {
             )}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div className="sm:col-span-2">
+              <label className={labelCls}>Fournisseur IA</label>
+              <select
+                className={inputCls}
+                value={aiProvider}
+                onChange={(e) => {
+                  const newProv = e.target.value;
+                  setAiProvider(newProv);
+                  // Auto-remplit URL/modèle si vides ou si l'utilisateur change de preset
+                  const preset = aiProviders.find((p) => p.id === newProv);
+                  if (preset && newProv !== "custom") {
+                    if (!aiBaseUrl || aiProviders.some((p) => p.base_url === aiBaseUrl)) {
+                      setAiBaseUrl(preset.base_url);
+                    }
+                    if (!aiModel || aiProviders.some((p) => p.default_model === aiModel)) {
+                      setAiModel(preset.default_model);
+                    }
+                  }
+                }}
+              >
+                {aiProviders.length === 0 && <option value="custom">Personnalisé</option>}
+                {aiProviders.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                    {p.requires_key ? "" : " — sans clé"}
+                  </option>
+                ))}
+              </select>
+              {(() => {
+                const preset = aiProviders.find((p) => p.id === aiProvider);
+                if (!preset || !preset.docs) return null;
+                return (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Doc / clé API :{" "}
+                    <a
+                      href={preset.docs}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {preset.docs}
+                    </a>
+                  </p>
+                );
+              })()}
+            </div>
             <div>
               <label className={labelCls}>Modèle</label>
               <input
                 className={inputCls}
                 value={aiModel}
                 onChange={(e) => setAiModel(e.target.value)}
-                placeholder="Ex: alfred-4.2"
+                placeholder={
+                  aiProviders.find((p) => p.id === aiProvider)?.default_model ||
+                  "Ex: alfred-4.2"
+                }
               />
             </div>
             <div>
@@ -787,7 +928,10 @@ export default function Settings({ onThemeChange }: SettingsProps) {
               className={inputCls}
               value={aiBaseUrl}
               onChange={(e) => setAiBaseUrl(e.target.value)}
-              placeholder="Ex: https://api.openai.com/v1"
+              placeholder={
+                aiProviders.find((p) => p.id === aiProvider)?.base_url ||
+                "Ex: https://api.openai.com/v1"
+              }
             />
           </div>
           <div className="mb-4">
@@ -890,6 +1034,82 @@ export default function Settings({ onThemeChange }: SettingsProps) {
             />
           </div>
           <button onClick={handleSaveHunter} disabled={saving} className={btnPrimary}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Enregistrer
+          </button>
+        </div>
+
+        {/* ─── SMTP (envoi des mails) ─────────────────── */}
+        <div className={sectionCls}>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Mail className="w-5 h-5" />
+            Envoi par email (SMTP)
+            {smtpHost && smtpPasswordSet && smtpFrom && (
+              <span className="ml-auto text-xs font-medium px-2.5 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
+                <Check className="w-3 h-3" /> Configuré
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Configurez votre serveur SMTP pour envoyer directement les mails au recruteur depuis l&apos;app.
+            Astuce : pour Gmail, créez un{" "}
+            <a href="https://support.google.com/accounts/answer/185833" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">
+              mot de passe d&apos;application
+            </a>{" "}
+            (ne fonctionne qu&apos;avec la 2FA activée). Pas de service payant nécessaire.
+          </p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button type="button" onClick={() => handleApplySmtpPreset("gmail")} className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
+              Préréglage Gmail
+            </button>
+            <button type="button" onClick={() => handleApplySmtpPreset("outlook")} className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
+              Outlook 365
+            </button>
+            <button type="button" onClick={() => handleApplySmtpPreset("ovh")} className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
+              OVH
+            </button>
+            <button type="button" onClick={() => handleApplySmtpPreset("ionos")} className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
+              IONOS
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>Serveur SMTP</label>
+              <input type="text" className={inputCls} value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder="smtp.exemple.com" />
+            </div>
+            <div>
+              <label className={labelCls}>Port</label>
+              <input type="number" className={inputCls} value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} placeholder="587" />
+            </div>
+            <div>
+              <label className={labelCls}>Identifiant (utilisateur)</label>
+              <input type="text" className={inputCls} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder="vous@exemple.com" />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Mot de passe
+                {smtpPasswordSet && <span className="text-green-600 dark:text-green-400 text-xs ml-1">✓ configuré</span>}
+              </label>
+              <input
+                type="password"
+                className={inputCls}
+                value={smtpPassword}
+                onChange={(e) => setSmtpPassword(e.target.value)}
+                placeholder={smtpPasswordSet ? "••••••••• (laisser vide pour garder)" : "Mot de passe SMTP"}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className={labelCls}>Adresse d&apos;expéditeur (From)</label>
+              <input type="email" className={inputCls} value={smtpFrom} onChange={(e) => setSmtpFrom(e.target.value)} placeholder="contact@votre-agence.com" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={smtpUseTls} onChange={(e) => setSmtpUseTls(e.target.checked)} className="w-4 h-4" />
+                Utiliser TLS / STARTTLS (recommandé)
+              </label>
+            </div>
+          </div>
+          <button onClick={handleSaveSmtp} disabled={saving} className={btnPrimary}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Enregistrer
           </button>

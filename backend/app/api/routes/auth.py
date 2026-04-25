@@ -3,22 +3,28 @@ InteriMatch AI - Routes Authentification
 """
 
 import pyotp
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password, create_access_token
-from app.models.models import User, UserSettings
+from app.models.models import User, UserSettings  # noqa: F401  (UserSettings reserved for future use)
 from app.schemas.schemas import UserCreate, UserResponse, TokenResponse, LoginRequest
 
+# Importer le limiter partagé
+from app.core.rate_limit import limiter
+
 router = APIRouter()
+_settings = get_settings()
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
-    """Créer un nouveau compte utilisateur."""
+@limiter.limit(_settings.rate_limit_register)
+async def register(request: Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+    """Créer un nouveau compte utilisateur (rate-limited)."""
     normalized_email = user_in.email.strip().lower()
     full_name = user_in.full_name.strip()
 
@@ -41,8 +47,9 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(credentials: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """Authentification et retour du token JWT."""
+@limiter.limit(_settings.rate_limit_login)
+async def login(request: Request, credentials: LoginRequest, db: AsyncSession = Depends(get_db)):
+    """Authentification et retour du token JWT (rate-limited)."""
     normalized_email = (credentials.email or "").strip().lower()
     password = (credentials.password or "").strip()
 

@@ -15,6 +15,8 @@ from langchain_core.output_parsers import JsonOutputParser
 from app.core.config import get_settings
 from app.core.database import async_session
 from app.models.models import ApiUsageLog
+from app.services.domain_classifier import PROMPT_VOCABULARY, resolve_profile_domain
+from app.services.ai_providers import resolve_provider
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -34,21 +36,48 @@ class ApiUsageEntry:
 
 def get_llm(user_settings=None) -> ChatOpenAI:
     """Instancie le client LLM OpenAI-compatible via LangChain.
-    Si user_settings fourni, utilise les clés de l'utilisateur en priorité."""
-    if user_settings and user_settings.ai_api_key:
-        return ChatOpenAI(
-            model=user_settings.ai_model or settings.ai_model,
-            base_url=user_settings.ai_base_url or settings.ai_server_url,
-            api_key=user_settings.ai_api_key,
-            temperature=user_settings.ai_temperature if user_settings.ai_temperature is not None else settings.ai_temperature,
-            max_tokens=settings.ai_max_tokens,
-            request_timeout=120,
+
+    Priorité :
+    1. user_settings : provider/base_url/api_key/model de l'utilisateur connecté
+    2. settings (env) : valeurs globales `.env` (AI_PROVIDER, AI_API_KEY, ...)
+
+    Si l'utilisateur a sélectionné un provider connu (groq, mistral, ...) sans
+    fournir d'URL, le preset est appliqué automatiquement.
+    """
+    if user_settings is not None:
+        provider = (
+            getattr(user_settings, "ai_provider", None) or settings.ai_provider
         )
+        api_key = (
+            getattr(user_settings, "ai_api_key", None) or settings.ai_api_key
+        )
+        base_url = (
+            getattr(user_settings, "ai_base_url", None) or settings.ai_server_url
+        )
+        model = (
+            getattr(user_settings, "ai_model", None) or settings.ai_model
+        )
+        temperature = (
+            user_settings.ai_temperature
+            if getattr(user_settings, "ai_temperature", None) is not None
+            else settings.ai_temperature
+        )
+    else:
+        provider = settings.ai_provider
+        api_key = settings.ai_api_key
+        base_url = settings.ai_server_url
+        model = settings.ai_model
+        temperature = settings.ai_temperature
+
+    eff_base_url, eff_key, eff_model = resolve_provider(
+        provider, base_url=base_url, api_key=api_key, model=model,
+    )
+
     return ChatOpenAI(
-        model=settings.ai_model,
-        base_url=settings.ai_server_url,
-        api_key=settings.ai_api_key or "not-needed",
-        temperature=settings.ai_temperature,
+        model=eff_model,
+        base_url=eff_base_url,
+        api_key=eff_key,
+        temperature=temperature,
         max_tokens=settings.ai_max_tokens,
         request_timeout=120,
     )
@@ -105,7 +134,7 @@ Format attendu :
   "profile_summary": "résumé professionnel en 2-3 phrases",
   "years_of_experience": nombre_entier_ou_null,
   "desired_job_titles": ["intitulé poste recherché 1", ...],
-  "professional_domain": "un seul mot décrivant le domaine/secteur professionnel principal du candidat (ex: informatique, bâtiment, logistique, restauration, industrie, commerce, santé, transport, agriculture, hôtellerie, comptabilité, électricité, mécanique)"
+  "professional_domain": "UNE seule valeur, choisie strictement dans cette liste : {vocabulary}. Si aucun ne correspond exactement, renvoie 'autre'."
 }}"""),
     ("human", "Voici le texte brut du CV :\n\n{cv_text}")
 ])
@@ -117,10 +146,16 @@ async def extract_cv_profile(cv_text: str, user_id: str | None = None, user_sett
     chain = CV_EXTRACTION_PROMPT | llm | JsonOutputParser()
     start = time.monotonic()
     try:
-        result = await chain.ainvoke({"cv_text": cv_text})
+        result = await chain.ainvoke({"cv_text": cv_text, "vocabulary": PROMPT_VOCABULARY})
         latency = int((time.monotonic() - start) * 1000)
         tokens_in = len(cv_text) // 4
         await _log_api_usage(ApiUsageEntry("ai", "extract_cv", latency, True, tokens_input=tokens_in, tokens_output=500, user_id=user_id))
+        # Normalisation + fallback déterministe (vocabulaire contrôlé)
+        if isinstance(result, dict):
+            try:
+                result["professional_domain"] = resolve_profile_domain(result)
+            except Exception as exc:  # pragma: no cover - safety net
+                logger.warning("resolve_profile_domain failed: %s", exc)
         return result
     except Exception as e:
         latency = int((time.monotonic() - start) * 1000)

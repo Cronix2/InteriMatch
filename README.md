@@ -22,7 +22,7 @@
 | ------------------- | ------------------------------------------------------------------ |
 | **Frontend**        | Next.js 15, React 19, TypeScript, Tailwind CSS                     |
 | **Backend**         | Python 3.12+, FastAPI                                              |
-| **IA / LLM**        | LangChain + API OpenAI-compatible (alfred-4.2 via Orange Business) |
+| **IA / LLM**        | LangChain + LLM OpenAI-compatible (Groq, Mistral, OpenAI, Ollama local, ou serveur privé) |
 | **Base de données** | PostgreSQL 16                                                      |
 | **Cache**           | Redis 7                                                            |
 | **CV Parsing**      | pdfplumber, python-docx                                            |
@@ -217,9 +217,12 @@ InteriMatch/
 
 ## Configuration IA (LLM)
 
-Le LLM est appelé via **LangChain** avec un client **OpenAI-compatible**. Configuration dans `.env` :
+Le LLM est appelé via **LangChain** avec un client **OpenAI-compatible**. Plusieurs fournisseurs sont supportés : Groq, Mistral AI, OpenRouter, Together AI, OpenAI, Ollama (local), ou tout endpoint personnalisé.
+
+Configuration dans `.env` :
 
 ```env
+AI_PROVIDER=custom            # groq | openrouter | mistral | together | ollama | openai | custom
 AI_MODEL=alfred-4.2
 AI_SERVER_URL=https://trust.liveintelligence.orange-business.com
 AI_API_KEY=
@@ -232,6 +235,43 @@ Le service IA est utilisé pour 3 tâches :
 - **Extraction de CV** : extraction structurée des informations du candidat
 - **Scoring de matching** : évaluation de la compatibilité candidat/offre
 - **Génération de mail** : rédaction d'un mail professionnel contextuel
+
+### Option : LLM local via Ollama (gratuit, hors ligne)
+
+Si vous préférez ne pas dépendre d'un service en ligne, vous pouvez activer **Ollama** — il sera alors déployé dans un conteneur Docker dédié et le modèle téléchargé automatiquement.
+
+> **⚠️** Le service Ollama n'est déployé que si vous l'activez explicitement (profil Docker `ollama`). Sans cette activation, aucun modèle n'est téléchargé et l'application utilise le LLM en ligne configuré dans `.env`.
+
+**Activation :**
+
+```bash
+# Démarrer l'application avec Ollama
+docker compose --profile ollama up -d
+```
+
+Le conteneur `ollama-init` télécharge automatiquement le modèle au premier démarrage (~5 minutes selon la connexion), puis s'arrête. Le modèle est conservé dans le volume Docker `ollama_data` pour les démarrages suivants.
+
+**Modèle par défaut : `qwen2.5:7b`** (~4.7 Go)
+
+Choisi pour son excellent rapport intelligence/taille : très bon en français, fiable pour la sortie JSON structurée (nécessaire à l'extraction de CV et au scoring de matching), tout en restant raisonnable en espace disque.
+
+Vous pouvez changer le modèle via `.env` :
+
+```env
+OLLAMA_MODEL=qwen2.5:7b      # par défaut, recommandé
+# OLLAMA_MODEL=qwen2.5:3b    # plus léger (~2 Go), un peu moins précis
+# OLLAMA_MODEL=llama3.1:8b   # alternative (~4.9 Go)
+# OLLAMA_MODEL=mistral:7b    # alternative française (~4.1 Go)
+```
+
+**Configuration côté application** : dans **Paramètres > IA**, sélectionnez le provider `Ollama (local Docker, 100% gratuit)`. L'URL et le modèle sont pré-remplis automatiquement.
+
+**Arrêter Ollama et libérer l'espace :**
+
+```bash
+docker compose --profile ollama down
+docker volume rm interimatch_ollama_data   # supprime aussi le modèle téléchargé
+```
 
 ---
 

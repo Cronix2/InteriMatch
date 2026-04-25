@@ -114,6 +114,9 @@ export const getMatchingHistory = () => api.get("/matching/history");
 export const generateEmail = (matchingResultId: string) =>
   api.post("/emails/generate", { matching_result_id: matchingResultId });
 
+export const getEmailByMatching = (matchingId: string) =>
+  api.get(`/emails/by-matching/${matchingId}`);
+
 export const getEmail = (emailId: string) => api.get(`/emails/${emailId}`);
 
 export const updateEmail = (
@@ -136,6 +139,11 @@ export const getCompanyContactsByName = (companyName: string) =>
 export const updateEmailRecipients = (emailId: string, recruiterEmail: string) =>
   api.put(`/emails/${emailId}/recipients`, { recruiter_email: recruiterEmail });
 
+export const sendEmail = (emailId: string, candidateId: string) =>
+  api.post(`/emails/${emailId}/send`, null, { params: { candidate_id: candidateId } });
+
+export const getSmtpStatus = () => api.get("/emails/smtp/status");
+
 // --- Settings ---
 export const getMe = () => api.get("/settings/me");
 
@@ -150,6 +158,7 @@ export const updateSettings = (data: {
   agency_email?: string;
   agency_siret?: string;
   email_template?: string;
+  ai_provider?: string;
   ai_api_key?: string;
   ai_model?: string;
   ai_base_url?: string;
@@ -157,7 +166,15 @@ export const updateSettings = (data: {
   france_travail_client_id?: string;
   france_travail_client_secret?: string;
   hunter_api_key?: string;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_user?: string;
+  smtp_password?: string;
+  smtp_use_tls?: boolean;
+  smtp_from?: string;
 }) => api.put("/settings/me", data);
+
+export const getAiProviders = () => api.get("/settings/ai-providers");
 
 export const changePassword = (
   current_password: string,

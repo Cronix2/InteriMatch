@@ -33,6 +33,7 @@ def _settings_to_response(s: UserSettings | None) -> UserSettingsResponse:
         agency_email=s.agency_email or "",
         agency_siret=s.agency_siret or "",
         email_template=s.email_template or "",
+        ai_provider=s.ai_provider or "",
         ai_model=s.ai_model or "",
         ai_base_url=s.ai_base_url or "",
         ai_temperature=s.ai_temperature,
@@ -40,6 +41,12 @@ def _settings_to_response(s: UserSettings | None) -> UserSettingsResponse:
         france_travail_client_id=s.france_travail_client_id or "",
         france_travail_secret_set=bool(s.france_travail_client_secret),
         hunter_api_key_set=bool(s.hunter_api_key),
+        smtp_host=s.smtp_host or "",
+        smtp_port=s.smtp_port,
+        smtp_user=s.smtp_user or "",
+        smtp_password_set=bool(s.smtp_password),
+        smtp_use_tls=bool(s.smtp_use_tls) if s.smtp_use_tls is not None else True,
+        smtp_from=s.smtp_from or "",
         setup_completed=_is_setup_complete(s),
         totp_enabled=s.totp_enabled or False,
     )
@@ -104,6 +111,15 @@ async def update_settings(
         s.theme = data.theme
     if data.ai_api_key is not None:
         s.ai_api_key = data.ai_api_key.strip()
+    if data.ai_provider is not None:
+        from app.services.ai_providers import ALLOWED_PROVIDERS
+        provider = data.ai_provider.strip().lower()
+        if provider and provider not in ALLOWED_PROVIDERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider IA invalide. Valeurs acceptees : {', '.join(sorted(ALLOWED_PROVIDERS))}",
+            )
+        s.ai_provider = provider
     if data.ai_model is not None:
         s.ai_model = data.ai_model.strip()
     if data.ai_base_url is not None:
@@ -116,6 +132,20 @@ async def update_settings(
         s.france_travail_client_secret = data.france_travail_client_secret.strip()
     if data.hunter_api_key is not None:
         s.hunter_api_key = data.hunter_api_key.strip()
+    if data.smtp_host is not None:
+        s.smtp_host = data.smtp_host.strip()
+    if data.smtp_port is not None:
+        if data.smtp_port < 0 or data.smtp_port > 65535:
+            raise HTTPException(status_code=400, detail="Port SMTP invalide")
+        s.smtp_port = data.smtp_port
+    if data.smtp_user is not None:
+        s.smtp_user = data.smtp_user.strip()
+    if data.smtp_password is not None:
+        s.smtp_password = data.smtp_password
+    if data.smtp_use_tls is not None:
+        s.smtp_use_tls = bool(data.smtp_use_tls)
+    if data.smtp_from is not None:
+        s.smtp_from = data.smtp_from.strip()
     if data.agency_address is not None:
         s.agency_address = data.agency_address.strip()
     if data.agency_phone is not None:
@@ -160,3 +190,20 @@ async def change_password(
     user.hashed_password = hash_password(data.new_password)
     await db.flush()
     return {"detail": "Mot de passe mis à jour"}
+
+
+@router.get("/ai-providers")
+async def list_ai_providers(_user: User = Depends(get_current_user_db)):
+    """Retourne la liste des providers IA disponibles avec leur preset par défaut."""
+    from app.services.ai_providers import PROVIDER_PRESETS
+    return [
+        {
+            "id": pid,
+            "label": preset["label"],
+            "base_url": preset["base_url"],
+            "default_model": preset["default_model"],
+            "requires_key": preset["requires_key"],
+            "docs": preset["docs"],
+        }
+        for pid, preset in PROVIDER_PRESETS.items()
+    ]

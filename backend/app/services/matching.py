@@ -3,12 +3,17 @@ InteriMatch AI - Service de matching candidat / offre
 Combine scoring par règles métier et scoring par IA.
 """
 
+import asyncio
 import json
 import logging
 
 from app.services.ai_service import compute_ai_matching
 
 logger = logging.getLogger(__name__)
+
+# Concurrence max d'appels LLM en parallèle pour le matching d'un candidat.
+# Tient compte des rate-limits providers (Groq ~30 req/s, OpenAI ~3 req/s).
+_MATCHING_CONCURRENCY = 5
 
 
 def _format_profile_for_matching(profile: dict, candidate: dict) -> str:
@@ -86,34 +91,47 @@ async def match_candidate_to_offers(
     Retourne une liste triée par score décroissant.
     """
     candidate_text = _format_profile_for_matching(profile, candidate)
-    results = []
+    sem = asyncio.Semaphore(_MATCHING_CONCURRENCY)
 
-    for offer in offers:
+    async def _score_one(offer: dict) -> dict:
         offer_text = _format_offer_for_matching(offer)
-        try:
-            scores = await compute_ai_matching(candidate_text, offer_text, user_id=user_id, user_settings=user_settings)
-            results.append({
-                "offer": offer,
-                "global_score": scores.get("global_score", 0),
-                "skills_score": scores.get("skills_score", 0),
-                "experience_score": scores.get("experience_score", 0),
-                "location_score": scores.get("location_score", 0),
-                "education_score": scores.get("education_score", 0),
-                "job_title_score": scores.get("job_title_score", 0),
-                "explanation": scores.get("explanation", ""),
-            })
-        except Exception as e:
-            logger.error(f"Erreur matching offre {offer.get('api_source_id')}: {e}")
-            results.append({
-                "offer": offer,
-                "global_score": 0,
-                "skills_score": 0,
-                "experience_score": 0,
-                "location_score": 0,
-                "education_score": 0,
-                "job_title_score": 0,
-                "explanation": f"Erreur lors du calcul: {str(e)}",
-            })
+        async with sem:
+            try:
+                scores = await compute_ai_matching(
+                    candidate_text,
+                    offer_text,
+                    user_id=user_id,
+                    user_settings=user_settings,
+                )
+                return {
+                    "offer": offer,
+                    "global_score": scores.get("global_score", 0),
+                    "skills_score": scores.get("skills_score", 0),
+                    "experience_score": scores.get("experience_score", 0),
+                    "location_score": scores.get("location_score", 0),
+                    "education_score": scores.get("education_score", 0),
+                    "job_title_score": scores.get("job_title_score", 0),
+                    "explanation": scores.get("explanation", ""),
+                }
+            except Exception as e:
+                logger.error(
+                    "Erreur matching offre %s: %s",
+                    offer.get("api_source_id"),
+                    e,
+                )
+                return {
+                    "offer": offer,
+                    "global_score": 0,
+                    "skills_score": 0,
+                    "experience_score": 0,
+                    "location_score": 0,
+                    "education_score": 0,
+                    "job_title_score": 0,
+                    "explanation": f"Erreur lors du calcul: {str(e)}",
+                }
+
+    # Exécution parallèle (semaphore-bornée) — gros gain pour 5-10 offres
+    results = await asyncio.gather(*(_score_one(o) for o in offers))
 
     # Tri par score global décroissant
     results.sort(key=lambda r: r["global_score"], reverse=True)

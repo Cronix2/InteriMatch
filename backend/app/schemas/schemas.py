@@ -4,17 +4,46 @@ InteriMatch AI - Schémas Pydantic (validation entrée/sortie API)
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+
+# ─── Password policy ─────────────────────────────────────────────────────────
+# Politique appliquée à l'inscription et au changement de mot de passe :
+# - 10 caractères minimum
+# - au moins 1 lettre, 1 chiffre
+# - rejet des mots de passe les plus communs
+_COMMON_PASSWORDS = {
+    "password", "password1", "12345678", "123456789", "azerty123",
+    "qwerty123", "motdepasse", "interimatch", "admin123", "welcome1",
+}
+_PASSWORD_LETTER_RE = re.compile(r"[A-Za-z]")
+_PASSWORD_DIGIT_RE = re.compile(r"\d")
+
+
+def _validate_password_strength(value: str) -> str:
+    if not value or len(value) < 10:
+        raise ValueError("Le mot de passe doit faire au moins 10 caractères")
+    if value.lower() in _COMMON_PASSWORDS:
+        raise ValueError("Ce mot de passe est trop commun, choisissez-en un autre")
+    if not _PASSWORD_LETTER_RE.search(value) or not _PASSWORD_DIGIT_RE.search(value):
+        raise ValueError("Le mot de passe doit contenir au moins une lettre et un chiffre")
+    return value
 
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=10)
     full_name: str
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 class UserResponse(BaseModel):
     id: uuid.UUID
@@ -188,6 +217,7 @@ class UserSettingsResponse(BaseModel):
     agency_email: str = ""
     agency_siret: str = ""
     email_template: str = ""
+    ai_provider: str = ""
     ai_model: str = ""
     ai_base_url: str = ""
     ai_temperature: float | None = None
@@ -195,6 +225,12 @@ class UserSettingsResponse(BaseModel):
     france_travail_client_id: str = ""
     france_travail_secret_set: bool = False
     hunter_api_key_set: bool = False
+    smtp_host: str = ""
+    smtp_port: int | None = None
+    smtp_user: str = ""
+    smtp_password_set: bool = False
+    smtp_use_tls: bool = True
+    smtp_from: str = ""
     setup_completed: bool = False
     totp_enabled: bool = False
 
@@ -217,6 +253,7 @@ class UserSettingsUpdate(BaseModel):
     agency_email: str | None = None
     agency_siret: str | None = None
     email_template: str | None = None
+    ai_provider: str | None = None
     ai_api_key: str | None = None
     ai_model: str | None = None
     ai_base_url: str | None = None
@@ -224,10 +261,21 @@ class UserSettingsUpdate(BaseModel):
     france_travail_client_id: str | None = None
     france_travail_client_secret: str | None = None
     hunter_api_key: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool | None = None
+    smtp_from: str | None = None
 
 class PasswordChangeRequest(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=8)
+    new_password: str = Field(min_length=10)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 class DashboardStatsResponse(BaseModel):
     total_candidates: int = 0

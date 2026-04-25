@@ -2,6 +2,8 @@
 InteriMatch AI - Routes Matching candidat / offres
 """
 
+import asyncio
+import logging
 import uuid
 from typing import Any
 
@@ -11,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.security import get_current_user
 from app.models.models import (
     Candidate,
     Resume,
@@ -24,7 +25,10 @@ from app.models.models import (
 from app.schemas.schemas import MatchingRequest, MatchingResultResponse
 from app.services.france_travail import search_offers, normalize_offer
 from app.services.matching import match_candidate_to_offers
-from app.api.deps import get_current_user_db
+from app.api.routes.emails import precompute_top_emails
+
+logger = logging.getLogger(__name__)
+from app.api.deps import get_current_user_db, get_owned_candidate
 from sqlalchemy import func
 
 router = APIRouter()
@@ -139,15 +143,10 @@ async def compute_matching(
     # Credentials utilisateur pour France Travail
     ft_cid = user.settings.france_travail_client_id if user.settings and user.settings.france_travail_client_id else None
     ft_cs = user.settings.france_travail_client_secret if user.settings and user.settings.france_travail_client_secret else None
-    # Récupérer le candidat et son profil
-    result = await db.execute(
-        select(Candidate)
-        .options(selectinload(Candidate.resumes).selectinload(Resume.extracted_profile))
-        .where(Candidate.id == request.candidate_id)
+    # Récupérer le candidat avec vérification de propriété (anti-IDOR)
+    candidate = await get_owned_candidate(
+        request.candidate_id, db, user, with_resumes=True
     )
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidat introuvable")
 
     if not candidate.resumes:
         raise HTTPException(status_code=400, detail="Aucun CV uploadé pour ce candidat")
@@ -266,21 +265,37 @@ async def compute_matching(
 
     # Trier par score décroissant
     saved_results.sort(key=lambda r: r.global_score, reverse=True)
-    return saved_results[: max(3, min(request.max_results, 10))]
+    final_results = saved_results[: max(3, min(request.max_results, 10))]
+
+    # Pré-calcul en arrière-plan des emails pour les 5 meilleurs matchings
+    # (idempotent : si l'utilisateur clique vite, /emails/generate renverra le résultat
+    # existant ou attendra la fin de la génération en cours).
+    top_ids = [r.id for r in final_results[:5]]
+    if top_ids:
+        try:
+            # On commit avant de lancer la tâche pour que la session de fond voie les rows
+            await db.commit()
+        except Exception:  # pragma: no cover - safety
+            await db.rollback()
+        asyncio.create_task(precompute_top_emails(user.id, top_ids))
+
+    return final_results
 
 
 @router.get("/history", response_model=list[dict])
 async def get_all_matchings_history(
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Récupère l'historique complet des matchings avec infos candidat."""
+    """Récupère l'historique des matchings de l'utilisateur courant uniquement."""
     result = await db.execute(
         select(MatchingResult)
+        .join(Candidate, MatchingResult.candidate_id == Candidate.id)
         .options(
             selectinload(MatchingResult.job_offer),
             selectinload(MatchingResult.candidate),
         )
+        .where(Candidate.created_by == user.id)
         .order_by(MatchingResult.computed_at.desc())
         .limit(100)
     )
@@ -317,9 +332,11 @@ async def get_all_matchings_history(
 async def get_candidate_matchings(
     candidate_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Récupère les résultats de matching d'un candidat."""
+    """Récupère les résultats de matching d'un candidat (uniquement si propriétaire)."""
+    # Vérifie l'appartenance avant de retourner les matchings
+    await get_owned_candidate(candidate_id, db, user)
     result = await db.execute(
         select(MatchingResult)
         .options(selectinload(MatchingResult.job_offer))
@@ -332,14 +349,16 @@ async def get_candidate_matchings(
 @router.get("/proposals/counts")
 async def get_proposal_counts(
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Retourne le nombre de propositions envoyées par offre d'emploi."""
+    """Retourne le nombre de propositions envoyées par offre, scopé à l'utilisateur courant."""
     result = await db.execute(
         select(
             SentProposal.job_offer_id,
             func.count(SentProposal.id).label("count"),
         )
+        .join(Candidate, SentProposal.candidate_id == Candidate.id)
+        .where(Candidate.created_by == user.id)
         .group_by(SentProposal.job_offer_id)
     )
     rows = result.all()

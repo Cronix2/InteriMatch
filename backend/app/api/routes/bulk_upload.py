@@ -3,6 +3,7 @@ InteriMatch AI - Routes Upload groupé de CV (ZIP)
 """
 
 import asyncio
+import logging
 import uuid
 import zipfile
 import io
@@ -15,12 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db, async_session
-from app.core.security import get_current_user
-from app.models.models import Candidate, Resume, ExtractedProfile, BulkUploadJob
+from app.models.models import Candidate, Resume, ExtractedProfile, BulkUploadJob, User
 from app.services.cv_parser import parse_cv
+from app.api.deps import get_current_user_db, get_owned_bulk_job
 
 settings = get_settings()
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 
@@ -107,84 +109,83 @@ async def _process_single_cv(
 
 
 async def _process_bulk_job(job_id: uuid.UUID, files: list[tuple[str, bytes]], user_id: str):
-    """Traite tous les fichiers d'un job bulk en arrière-plan."""
-    results = []
+    """Traite tous les fichiers d'un job bulk en parallèle (semaphore-borné)."""
+    # Concurrence : équilibre rapidité / rate-limits LLM. 4 = bon compromis.
+    concurrency = max(1, min(8, len(files)))
+    if concurrency > 4:
+        concurrency = 4
+    sem = asyncio.Semaphore(concurrency)
+
+    results: list[dict] = []
     successful = 0
     failed = 0
+    counters_lock = asyncio.Lock()
 
-    for file_name, file_bytes in files:
-        # Check for cancellation
-        if job_id in _cancelled_jobs:
-            _cancelled_jobs.discard(job_id)
-            async with async_session() as db:
-                job_result = await db.execute(
-                    select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-                )
-                job = job_result.scalar_one_or_none()
-                if job:
-                    job.status = "cancelled"
-                    job.results = results
-                    await db.commit()
-            return
-
-        # Check for pause - wait until resumed
-        while job_id in _paused_jobs:
-            await asyncio.sleep(1)
-            if job_id in _cancelled_jobs:
-                break
-
-        # Check cancel again after potential pause
-        if job_id in _cancelled_jobs:
-            _cancelled_jobs.discard(job_id)
-            async with async_session() as db:
-                job_result = await db.execute(
-                    select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-                )
-                job = job_result.scalar_one_or_none()
-                if job:
-                    job.status = "cancelled"
-                    job.results = results
-                    await db.commit()
-            return
-
-        result = await _process_single_cv(file_bytes, file_name, user_id, job_id)
-        results.append(result)
-        if result["status"] == "success":
-            successful += 1
-        else:
-            failed += 1
-
-        # Mettre à jour le job en base à chaque fichier traité
+    async def _persist_progress(final: bool = False, status_override: str | None = None):
         async with async_session() as db:
             job_result = await db.execute(
                 select(BulkUploadJob).where(BulkUploadJob.id == job_id)
             )
             job = job_result.scalar_one_or_none()
-            if job:
-                job.processed_files = successful + failed
-                job.successful_files = successful
-                job.failed_files = failed
-                job.results = results
-                await db.commit()
-
-    # Marquer comme terminé
-    async with async_session() as db:
-        job_result = await db.execute(
-            select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-        )
-        job = job_result.scalar_one_or_none()
-        if job:
-            job.status = "completed"
-            job.completed_at = datetime.now(timezone.utc)
-            job.results = results
+            if not job:
+                return
+            job.processed_files = successful + failed
+            job.successful_files = successful
+            job.failed_files = failed
+            job.results = list(results)
+            if status_override:
+                job.status = status_override
+            if final:
+                job.completed_at = datetime.now(timezone.utc)
             await db.commit()
+
+    async def _worker(file_name: str, file_bytes: bytes):
+        nonlocal successful, failed
+        # Respecter pause / cancel avant de prendre un slot
+        while True:
+            if job_id in _cancelled_jobs:
+                return
+            if job_id not in _paused_jobs:
+                break
+            await asyncio.sleep(1)
+
+        async with sem:
+            if job_id in _cancelled_jobs:
+                return
+            result = await _process_single_cv(file_bytes, file_name, user_id, job_id)
+
+        async with counters_lock:
+            results.append(result)
+            if result["status"] == "success":
+                successful += 1
+            else:
+                failed += 1
+            # Persister la progression toutes les ~5 unités ou à la fin
+            should_persist = ((successful + failed) % 5 == 0) or (
+                successful + failed == len(files)
+            )
+        if should_persist:
+            await _persist_progress()
+
+    workers = [asyncio.create_task(_worker(name, data)) for name, data in files]
+    try:
+        await asyncio.gather(*workers, return_exceptions=False)
+    except Exception as exc:
+        logger.exception("Bulk job %s crashed: %s", job_id, exc)
+
+    # Statut final
+    if job_id in _cancelled_jobs:
+        _cancelled_jobs.discard(job_id)
+        await _persist_progress(final=True, status_override="cancelled")
+    else:
+        await _persist_progress(final=True, status_override="completed")
 
 
 @router.post("/upload-zip", status_code=status.HTTP_202_ACCEPTED)
 async def upload_zip(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
     """Upload un fichier ZIP contenant plusieurs CV. Traitement en arrière-plan."""
     if not file.filename or not file.filename.lower().endswith(".zip"):
@@ -216,7 +217,7 @@ async def upload_zip(
 
     # Créer le job en base
     job = BulkUploadJob(
-        user_id=uuid.UUID(user["sub"]),
+        user_id=user.id,
         total_files=len(cv_files),
         status="processing",
     )
@@ -233,7 +234,7 @@ async def upload_zip(
     await db.commit()
 
     # Lancer le traitement en arrière-plan
-    asyncio.create_task(_process_bulk_job(job.id, cv_files, user["sub"]))
+    asyncio.create_task(_process_bulk_job(job.id, cv_files, str(user.id)))
 
     return {
         "job": job_data,
@@ -244,11 +245,14 @@ async def upload_zip(
 @router.get("/jobs")
 async def list_bulk_jobs(
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Liste les jobs d'upload groupé."""
+    """Liste les jobs d'upload groupé de l'utilisateur courant."""
     result = await db.execute(
-        select(BulkUploadJob).order_by(BulkUploadJob.created_at.desc()).limit(20)
+        select(BulkUploadJob)
+        .where(BulkUploadJob.user_id == user.id)
+        .order_by(BulkUploadJob.created_at.desc())
+        .limit(20)
     )
     jobs = result.scalars().all()
     return [
@@ -271,15 +275,10 @@ async def list_bulk_jobs(
 async def get_bulk_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Récupère le statut d'un job d'upload groupé."""
-    result = await db.execute(
-        select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job introuvable")
+    """Récupère le statut d'un job (uniquement si propriétaire)."""
+    job = await get_owned_bulk_job(job_id, db, user)
     return {
         "id": str(job.id),
         "total_files": job.total_files,
@@ -297,15 +296,10 @@ async def get_bulk_job(
 async def pause_bulk_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Met en pause un job d'upload groupé."""
-    result = await db.execute(
-        select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job introuvable")
+    """Met en pause un job (uniquement si propriétaire)."""
+    job = await get_owned_bulk_job(job_id, db, user)
     if job.status != "processing":
         raise HTTPException(status_code=400, detail="Le job n'est pas en cours de traitement")
 
@@ -319,15 +313,10 @@ async def pause_bulk_job(
 async def resume_bulk_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Reprend un job d'upload groupé en pause."""
-    result = await db.execute(
-        select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job introuvable")
+    """Reprend un job en pause (uniquement si propriétaire)."""
+    job = await get_owned_bulk_job(job_id, db, user)
     if job.status != "paused":
         raise HTTPException(status_code=400, detail="Le job n'est pas en pause")
 
@@ -341,15 +330,10 @@ async def resume_bulk_job(
 async def cancel_bulk_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Annule un job d'upload groupé."""
-    result = await db.execute(
-        select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job introuvable")
+    """Annule un job (uniquement si propriétaire)."""
+    job = await get_owned_bulk_job(job_id, db, user)
     if job.status not in ("processing", "paused"):
         raise HTTPException(status_code=400, detail="Le job ne peut pas être annulé")
 
@@ -364,15 +348,10 @@ async def cancel_bulk_job(
 async def retry_failed_bulk_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Relance les CV échoués d'un job d'upload groupé."""
-    result = await db.execute(
-        select(BulkUploadJob).where(BulkUploadJob.id == job_id)
-    )
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job introuvable")
+    """Relance les CV échoués d'un job (uniquement si propriétaire)."""
+    job = await get_owned_bulk_job(job_id, db, user)
     if job.status not in ("completed", "cancelled"):
         raise HTTPException(status_code=400, detail="Le job est encore en cours")
 

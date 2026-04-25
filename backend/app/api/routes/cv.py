@@ -14,12 +14,11 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.security import get_current_user
 from app.models.models import Candidate, Resume, ExtractedProfile, User
 from app.schemas.schemas import CVUploadResponse, ExtractedProfileResponse
 from app.services.cv_parser import parse_cv
 from app.services.candidate_dedup import find_duplicate, extract_face_encoding_from_pdf
-from app.api.deps import get_current_user_db
+from app.api.deps import get_current_user_db, get_owned_candidate, get_owned_resume
 
 from fpdf import FPDF
 
@@ -183,32 +182,24 @@ async def upload_cv(
 async def get_extracted_profile(
     resume_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Récupère le profil extrait d'un CV."""
-    result = await db.execute(
-        select(ExtractedProfile).where(ExtractedProfile.resume_id == resume_id)
-    )
-    profile = result.scalar_one_or_none()
-    if not profile:
+    """Récupère le profil extrait d'un CV (uniquement si le candidat appartient à l'utilisateur)."""
+    resume = await get_owned_resume(resume_id, db, user)
+    if not resume.extracted_profile:
         raise HTTPException(status_code=404, detail="Profil extrait introuvable")
-    return profile
+    return resume.extracted_profile
 
 
 @router.get("/candidate/{candidate_id}/profile")
 async def get_candidate_profile(
     candidate_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Récupère le profil extrait + infos candidat pour un candidat donné."""
-    result = await db.execute(
-        select(Candidate)
-        .options(selectinload(Candidate.resumes).selectinload(Resume.extracted_profile))
-        .where(Candidate.id == candidate_id)
-    )
-    candidate = result.scalar_one_or_none()
-    if not candidate or not candidate.resumes:
+    """Récupère le profil extrait + infos candidat (uniquement si propriétaire)."""
+    candidate = await get_owned_candidate(candidate_id, db, user, with_resumes=True)
+    if not candidate.resumes:
         raise HTTPException(status_code=404, detail="Candidat ou CV introuvable")
 
     latest_resume = sorted(candidate.resumes, key=lambda r: r.imported_at, reverse=True)[0]
@@ -242,18 +233,12 @@ async def get_candidate_profile(
 async def get_anonymized_cv(
     candidate_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Génère un CV anonymisé en PDF à partir des données extraites (sans nom, email, téléphone, photo)."""
-    
+    """Génère un CV anonymisé en PDF (uniquement si propriétaire)."""
 
-    result = await db.execute(
-        select(Candidate)
-        .options(selectinload(Candidate.resumes).selectinload(Resume.extracted_profile))
-        .where(Candidate.id == candidate_id)
-    )
-    candidate = result.scalar_one_or_none()
-    if not candidate or not candidate.resumes:
+    candidate = await get_owned_candidate(candidate_id, db, user, with_resumes=True)
+    if not candidate.resumes:
         raise HTTPException(status_code=404, detail="Candidat ou CV introuvable")
 
     latest_resume = sorted(candidate.resumes, key=lambda r: r.imported_at, reverse=True)[0]

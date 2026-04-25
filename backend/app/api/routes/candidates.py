@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.models import Candidate, Resume, ExtractedProfile
+from app.models.models import Candidate, Resume, User
 from app.schemas.schemas import CandidateCreate, CandidateResponse
+from app.api.deps import get_current_user_db, get_owned_candidate
 
 router = APIRouter()
 
@@ -20,13 +20,13 @@ router = APIRouter()
 @router.get("/pipeline")
 async def list_pipeline_candidates(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Liste les candidats avec statut de traitement pour le pipeline."""
+    """Liste les candidats de l'utilisateur avec statut de traitement pour le pipeline."""
     result = await db.execute(
         select(Candidate)
         .options(selectinload(Candidate.resumes).selectinload(Resume.extracted_profile))
-        .where(Candidate.created_by == uuid.UUID(user["sub"]))
+        .where(Candidate.created_by == user.id)
         .order_by(Candidate.created_at.desc())
     )
     candidates = result.scalars().unique().all()
@@ -62,16 +62,13 @@ async def update_processing_status(
     candidate_id: uuid.UUID,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Met à jour le statut de traitement d'un candidat."""
+    """Met à jour le statut de traitement d'un candidat (uniquement si propriétaire)."""
     new_status = body.get("status")
     if new_status not in ("pending", "matching", "email", "completed"):
         raise HTTPException(status_code=400, detail="Statut invalide")
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidat introuvable")
+    candidate = await get_owned_candidate(candidate_id, db, user)
     candidate.processing_status = new_status
     await db.commit()
     return {"status": new_status}
@@ -80,10 +77,14 @@ async def update_processing_status(
 @router.get("/", response_model=list[CandidateResponse])
 async def list_candidates(
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Liste tous les candidats."""
-    result = await db.execute(select(Candidate).order_by(Candidate.created_at.desc()))
+    """Liste les candidats appartenant à l'utilisateur courant."""
+    result = await db.execute(
+        select(Candidate)
+        .where(Candidate.created_by == user.id)
+        .order_by(Candidate.created_at.desc())
+    )
     return result.scalars().all()
 
 
@@ -91,21 +92,17 @@ async def list_candidates(
 async def get_candidate(
     candidate_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Récupère un candidat par son ID."""
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidat introuvable")
-    return candidate
+    """Récupère un candidat par son ID (uniquement si propriétaire)."""
+    return await get_owned_candidate(candidate_id, db, user)
 
 
 @router.post("/", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
 async def create_candidate(
     data: CandidateCreate,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
     """Crée un candidat manuellement."""
     candidate = Candidate(
@@ -115,7 +112,7 @@ async def create_candidate(
         phone=data.phone,
         location=data.location,
         availability=data.availability,
-        created_by=uuid.UUID(user["sub"]),
+        created_by=user.id,
     )
     db.add(candidate)
     await db.flush()
@@ -127,17 +124,9 @@ async def create_candidate(
 async def delete_candidate(
     candidate_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user_db),
 ):
-    """Supprime un candidat et ses données associées."""
-    result = await db.execute(
-        select(Candidate).where(
-            Candidate.id == candidate_id,
-            Candidate.created_by == uuid.UUID(user["sub"]),
-        )
-    )
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidat introuvable")
+    """Supprime un candidat et ses données associées (uniquement si propriétaire)."""
+    candidate = await get_owned_candidate(candidate_id, db, user)
     await db.delete(candidate)
     await db.commit()

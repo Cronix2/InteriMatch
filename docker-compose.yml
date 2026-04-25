@@ -75,6 +75,45 @@ services:
       - backend
     command: npm run dev
 
+  # --- Ollama (LLM local, OPTIONNEL) ---
+  # À activer avec : docker compose --profile ollama up -d
+  # Si ce profil n'est pas activé, ces services ne démarrent pas et n'occupent
+  # aucune ressource (utile si on utilise un LLM en ligne : Groq, Mistral, etc.)
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Télécharge automatiquement le modèle au premier démarrage puis s'arrête.
+  # Modèle par défaut : qwen2.5:7b (~4.7 Go) — excellent rapport intelligence/taille,
+  # très bon en français et en sortie JSON structurée (idéal pour extraction CV).
+  # Alternatives : qwen2.5:3b (~2 Go, plus léger), llama3.1:8b (~4.9 Go), mistral:7b.
+  ollama-init:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen2.5:7b}"
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - 'ollama pull "$$OLLAMA_MODEL" && echo "[ollama-init] Modele pret => $$OLLAMA_MODEL"'
+    restart: "no"
+
 volumes:
   pgdata:
   uploads:
+  ollama_data:

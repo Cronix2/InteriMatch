@@ -64,6 +64,7 @@ class UserSettings(Base):
     email_template = Column(Text, default="")
 
     # IA overrides
+    ai_provider = Column(String(50), default="")  # groq | openrouter | mistral | together | ollama | openai | custom
     ai_api_key = Column(String(500), default="")
     ai_model = Column(String(100), default="")
     ai_base_url = Column(String(500), default="")
@@ -75,6 +76,14 @@ class UserSettings(Base):
 
     # Hunter.io
     hunter_api_key = Column(String(255), default="")
+
+    # SMTP — envoi automatique des emails (override par utilisateur)
+    smtp_host = Column(String(255), default="")
+    smtp_port = Column(Integer, nullable=True)
+    smtp_user = Column(String(255), default="")
+    smtp_password = Column(String(500), default="")
+    smtp_use_tls = Column(Boolean, default=True)
+    smtp_from = Column(String(255), default="")
 
     # 2FA
     totp_enabled = Column(Boolean, default=False)
@@ -210,6 +219,8 @@ class GeneratedEmail(Base):
     status = Column(String(50), default="draft")  # draft, validated, sent
     generated_at = Column(DateTime(timezone=True), default=utcnow)
     validated_at = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    sent_message_id = Column(String(500), nullable=True)
 
     matching_result = relationship("MatchingResult", back_populates="generated_email")
 
@@ -295,3 +306,23 @@ class CompanyContact(Base):
     company_name = Column(String(255), default="")
     fetched_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     fetched_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── Cache des recherches Hunter (TTL + cache négatif) ──────────────────────
+
+class CompanyLookup(Base):
+    """Trace les recherches Hunter pour éviter les appels API redondants.
+
+    Sert à la fois de cache positif (associe une recherche → un domaine résolu)
+    et de cache négatif (mémorise les recherches qui n'ont rien donné).
+    """
+    __tablename__ = "company_lookups"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    # Clé normalisée : "domain:example.com" ou "name:slugifié"
+    lookup_key = Column(String(500), nullable=False, index=True)
+    resolved_domain = Column(String(255), default="")
+    resolved_company = Column(String(255), default="")
+    contacts_count = Column(Integer, default=0)  # 0 = cache négatif
+    fetched_at = Column(DateTime(timezone=True), default=utcnow, index=True)

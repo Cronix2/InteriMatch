@@ -9,9 +9,12 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import get_settings
 from app.core.database import engine, Base
+from app.core.rate_limit import limiter
 from sqlalchemy import text
 from app.api.routes import candidates, cv, matching, emails, auth, job_offers, bulk_upload, recruiter, two_factor
 from app.api.routes import settings as settings_routes
@@ -90,6 +93,39 @@ async def lifespan(app: FastAPI):
             )
             await conn.execute(
                 text(
+                    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                    " ai_provider VARCHAR(50) DEFAULT ''"
+                )
+            )
+            # SMTP overrides utilisateur (BLOC 4)
+            for col, ddl in [
+                ("smtp_host", "VARCHAR(255) DEFAULT ''"),
+                ("smtp_port", "INTEGER"),
+                ("smtp_user", "VARCHAR(255) DEFAULT ''"),
+                ("smtp_password", "VARCHAR(500) DEFAULT ''"),
+                ("smtp_use_tls", "BOOLEAN DEFAULT TRUE"),
+                ("smtp_from", "VARCHAR(255) DEFAULT ''"),
+            ]:
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col} {ddl}"
+                    )
+                )
+            # GeneratedEmail : trace d'envoi
+            await conn.execute(
+                text(
+                    "ALTER TABLE generated_emails ADD COLUMN IF NOT EXISTS"
+                    " sent_at TIMESTAMPTZ"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE generated_emails ADD COLUMN IF NOT EXISTS"
+                    " sent_message_id VARCHAR(500)"
+                )
+            )
+            await conn.execute(
+                text(
                     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS"
                     " face_encoding JSON"
                 )
@@ -120,13 +156,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# Rate limiting middleware
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS — méthodes et headers restreints (au lieu de "*")
+_allowed_origins = [o.strip() for o in app_settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in app_settings.cors_origins.split(",") if o.strip()],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+    expose_headers=["Content-Disposition"],
+    max_age=600,
 )
 
 

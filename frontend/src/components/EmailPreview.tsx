@@ -15,8 +15,9 @@ import {
   Users,
   X,
   RefreshCw,
+  Send,
 } from "lucide-react";
-import { generateEmail, updateEmail, getMe, downloadAnonymizedCV, downloadEmailEml, lookupRecruiter, getCompanyContacts, getCompanyContactsByName, updateEmailRecipients } from "@/lib/api";
+import { generateEmail, updateEmail, getMe, downloadAnonymizedCV, downloadEmailEml, lookupRecruiter, getCompanyContacts, getCompanyContactsByName, updateEmailRecipients, sendEmail, getSmtpStatus, getEmailByMatching } from "@/lib/api";
 
 interface EmailPreviewProps {
   matchingResultId: string;
@@ -94,6 +95,9 @@ export default function EmailPreview({
   const [showContactDropdown, setShowContactDropdown] = useState(false);
   const [companyDomain, setCompanyDomain] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
+  const [smtpReady, setSmtpReady] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendInfo, setSendInfo] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const generatedForIdRef = useRef<string | null>(null);
   const senderInfoRef = useRef<{
@@ -131,6 +135,19 @@ export default function EmailPreview({
       }
     };
     loadSender();
+  }, []);
+
+  // Check if SMTP is configured
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await getSmtpStatus();
+        setSmtpReady(!!res.data?.configured);
+      } catch {
+        setSmtpReady(false);
+      }
+    };
+    check();
   }, []);
 
   // Close dropdown on outside click
@@ -210,7 +227,15 @@ export default function EmailPreview({
       setLoading(true);
       setError(null);
       try {
-        const response = await generateEmail(matchingResultId);
+        // Tenter d'abord de récupérer un email pré-calculé (BLOC 5 : top 5 mails
+        // sont générés en arrière-plan dès la fin du matching). Sinon, fallback
+        // sur la génération synchrone qui est elle-même idempotente.
+        let response;
+        try {
+          response = await getEmailByMatching(matchingResultId);
+        } catch {
+          response = await generateEmail(matchingResultId);
+        }
         setEmailData(response.data);
         // Recruiter email: from backend response — validate it's an actual email
         const rawEmail = response.data.recruiter_email;
@@ -285,12 +310,9 @@ export default function EmailPreview({
   const handleValidate = async () => {
     if (!emailData) return;
     try {
-      const response = await updateEmail(emailData.id, {
-        status: "validated",
-      });
+      const response = await updateEmail(emailData.id, { status: "validated" });
       setEmailData(response.data);
 
-      // Download .eml file with the anonymized CV attached
       if (candidateId) {
         try {
           const res = await downloadEmailEml(emailData.id, candidateId);
@@ -302,21 +324,39 @@ export default function EmailPreview({
           a.click();
           a.remove();
           window.URL.revokeObjectURL(url);
+          return;
         } catch {
-          // Fallback to mailto: if .eml download fails
-          const to = selectedRecipients.length > 0 ? encodeURIComponent(selectedRecipients.join(", ")) : "";
-          const subject = encodeURIComponent(editSubject);
-          const body = encodeURIComponent(editBody);
-          window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
+          // fall through to mailto
         }
-      } else {
-        const to = selectedRecipients.length > 0 ? encodeURIComponent(selectedRecipients.join(", ")) : "";
-        const subject = encodeURIComponent(editSubject);
-        const body = encodeURIComponent(editBody);
-        window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
       }
+      const to = selectedRecipients.length > 0 ? encodeURIComponent(selectedRecipients.join(", ")) : "";
+      const subject = encodeURIComponent(editSubject);
+      const body = encodeURIComponent(editBody);
+      window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
     } catch {
       setError("Erreur lors de la validation");
+    }
+  };
+
+  const handleSend = async () => {
+    if (!emailData || !candidateId) return;
+    setSending(true);
+    setSendInfo(null);
+    try {
+      const res = await sendEmail(emailData.id, candidateId);
+      setSendInfo(`Mail envoye a : ${(res.data?.recipients || []).join(", ")}`);
+      setEmailData((prev: any) => prev ? { ...prev, status: "sent", sent_at: res.data?.sent_at } : prev);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      const status = err?.response?.status;
+      if (status === 400 && typeof detail === "string" && detail.toLowerCase().includes("smtp")) {
+        setSmtpReady(false);
+        setSendInfo("SMTP non configuré. Allez dans Paramètres > SMTP, ou utilisez 'Valider & Telecharger .eml'.");
+      } else {
+        setSendInfo(typeof detail === "string" ? detail : "Erreur lors de l'envoi du mail.");
+      }
+    } finally {
+      setSending(false);
     }
   };
 
@@ -376,11 +416,25 @@ export default function EmailPreview({
           Mail généré
         </h2>
         <div className="flex items-center gap-2">
-          {emailData?.status === "validated" ? (
+          {emailData?.status === "sent" ? (
+            <span className="flex items-center gap-1 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-medium">
+              <Send className="w-4 h-4" /> Envoyé
+            </span>
+          ) : emailData?.status === "validated" ? (
             <>
               <span className="flex items-center gap-1 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-lg text-sm font-medium">
                 <CheckCircle className="w-4 h-4" /> Validé
               </span>
+              {smtpReady && candidateId && (
+                <button
+                  onClick={handleSend}
+                  disabled={sending}
+                  className="flex items-center gap-1 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 transition-colors font-medium disabled:opacity-50"
+                >
+                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Envoyer maintenant
+                </button>
+              )}
               <button
                 onClick={async () => {
                   if (candidateId && emailData) {
@@ -404,7 +458,7 @@ export default function EmailPreview({
                   const body = encodeURIComponent(editBody);
                   window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
                 }}
-                className="flex items-center gap-1 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 transition-colors font-medium"
+                className="flex items-center gap-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
                 <ExternalLink className="w-4 h-4" /> Ouvrir dans la messagerie
               </button>
@@ -422,7 +476,7 @@ export default function EmailPreview({
                 onClick={handleValidate}
                 className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors font-medium"
               >
-                <CheckCircle className="w-4 h-4" /> Valider & Envoyer
+                <CheckCircle className="w-4 h-4" /> {smtpReady ? "Valider" : "Valider & .eml"}
               </button>
             </>
           )}
@@ -446,6 +500,11 @@ export default function EmailPreview({
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        {sendInfo && (
+          <div className="px-6 py-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300">
+            {sendInfo}
+          </div>
+        )}
         {/* Destinataire(s) */}
         <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-3">
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
