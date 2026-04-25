@@ -48,7 +48,8 @@ export default function History() {
       try {
         const res = await getMatchingHistory();
         setEntries(res.data);
-      } catch {
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
         setError("Impossible de charger l'historique");
       } finally {
         setLoading(false);
@@ -74,7 +75,8 @@ export default function History() {
         hour: "2-digit",
         minute: "2-digit",
       });
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       return dateStr;
     }
   };

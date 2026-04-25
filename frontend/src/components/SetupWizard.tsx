@@ -13,6 +13,7 @@ import {
   Rocket,
 } from "lucide-react";
 import { updateSettings } from "@/lib/api";
+import { getApiErrorDetail } from "@/lib/utils";
 
 interface SetupWizardProps {
   onComplete: () => void;
@@ -102,16 +103,16 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       } else {
         onComplete();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(
-        err.response?.data?.detail || "Erreur lors de la sauvegarde"
+        getApiErrorDetail(err, "Erreur lors de la sauvegarde")
       );
     } finally {
       setSaving(false);
     }
   };
 
-  const stepContent = () => {
+  const renderStepContent = () => {
     const currentStep = STEPS[step].key;
 
     if (currentStep === "company") {
@@ -364,7 +365,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
             </div>
           </div>
 
-          {stepContent()}
+          {renderStepContent()}
 
           {error && (
             <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3 text-sm text-red-700 dark:text-red-400">

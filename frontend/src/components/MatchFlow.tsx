@@ -29,7 +29,8 @@ export default function MatchFlow() {
       setMatchingResults([]);
       setSelectedMatch(null);
       setStep("matching");
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       // silently fail
     }
   };

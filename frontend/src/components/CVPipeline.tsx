@@ -115,7 +115,8 @@ export default function CVPipeline() {
     try {
       const res = await listPipelineCandidates();
       setCandidates(res.data);
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       // silently fail
     }
   }, []);
@@ -148,7 +149,8 @@ export default function CVPipeline() {
               loadCandidates();
             }
           }
-        } catch {
+        } catch (err) {
+          if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
           // Ignore polling errors
         }
       }, 2000);
@@ -171,7 +173,8 @@ export default function CVPipeline() {
         ...extracted_profile,
         _candidateLocation: cand.location,
       });
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       setProfileData({
         _candidateLocation: candidate.location,
         professional_domain: candidate.profile?.professional_domain,
@@ -225,7 +228,8 @@ export default function CVPipeline() {
     try {
       await deleteCandidate(candidateId);
       setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       // silently fail
     } finally {
       setDeletingId(null);
@@ -256,7 +260,8 @@ export default function CVPipeline() {
         hour: "2-digit",
         minute: "2-digit",
       });
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       return dateStr;
     }
   };

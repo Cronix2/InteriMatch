@@ -72,10 +72,6 @@ export const downloadAnonymizedCV = (candidateId: string) =>
   api.get(`/cv/candidate/${candidateId}/anonymized-cv`, { responseType: "blob" });
 
 // --- Candidats ---
-export const listCandidates = () => api.get("/candidates/");
-
-export const getCandidate = (id: string) => api.get(`/candidates/${id}`);
-
 export const listPipelineCandidates = () => api.get("/candidates/pipeline");
 
 export const updateCandidateStatus = (candidateId: string, status: string) =>

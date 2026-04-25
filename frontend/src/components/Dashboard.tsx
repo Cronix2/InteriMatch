@@ -69,7 +69,8 @@ export default function Dashboard() {
         ]);
         setStats(statsRes.data);
         setMetrics(metricsRes.data);
-      } catch {
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
         // silent
       } finally {
         setLoading(false);
@@ -86,7 +87,8 @@ export default function Dashboard() {
         hour: "2-digit",
         minute: "2-digit",
       });
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       return iso;
     }
   };

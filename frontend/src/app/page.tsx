@@ -9,6 +9,7 @@ import History from "@/components/History";
 import Settings from "@/components/Settings";
 import SetupWizard from "@/components/SetupWizard";
 import { getMe } from "@/lib/api";
+import { getApiErrorStatus } from "@/lib/utils";
 
 function applyThemeClass(theme: string) {
   const root = document.documentElement;
@@ -47,7 +48,7 @@ export default function Home() {
         setNeedsSetup(!setupDone);
       })
       .catch((err) => {
-        if (err.response?.status === 401) {
+        if (getApiErrorStatus(err) === 401) {
           localStorage.removeItem("interimatch_token");
         } else {
           // Erreur serveur (500, réseau…) : garder la session
@@ -82,7 +83,8 @@ export default function Home() {
       const res = await getMe();
       const setupDone = res.data?.settings?.setup_completed ?? false;
       setNeedsSetup(!setupDone);
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       // If getMe fails, don't block — assume setup is done
     }
   };

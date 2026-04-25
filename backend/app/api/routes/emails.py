@@ -7,6 +7,7 @@ import io
 import logging
 import re
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -98,6 +99,21 @@ def _build_lookup_key(domain: str | None, company_name: str | None) -> str | Non
     return None
 
 
+@dataclass(frozen=True)
+class _LookupQuery:
+    """Paramètres d'entrée d'une recherche Hunter (regroupés pour alléger les signatures)."""
+    domain: str | None = None
+    company_name: str | None = None
+
+
+@dataclass
+class _LookupResult:
+    """Résultat d'une recherche Hunter (regroupé pour alléger les signatures)."""
+    contacts: list[dict] = field(default_factory=list)
+    resolved_domain: str | None = None
+    resolved_company: str | None = None
+
+
 async def _get_cached_contacts(
     db: AsyncSession,
     user: User,
@@ -161,22 +177,19 @@ async def _save_lookup_result(
     db: AsyncSession,
     user: User,
     *,
-    domain: str | None,
-    company_name: str | None,
-    contacts: list[dict],
-    resolved_domain: str | None,
-    resolved_company: str | None,
+    query: "_LookupQuery",
+    result: "_LookupResult",
 ) -> None:
     """Persiste le résultat d'une recherche Hunter (positif ou négatif)."""
     keys: list[str] = []
-    k_domain = _build_lookup_key(domain, None)
-    k_name = _build_lookup_key(None, company_name)
+    k_domain = _build_lookup_key(query.domain, None)
+    k_name = _build_lookup_key(None, query.company_name)
     if k_domain:
         keys.append(k_domain)
     if k_name and k_name not in keys:
         keys.append(k_name)
-    if resolved_domain:
-        k_resolved = _build_lookup_key(resolved_domain, None)
+    if result.resolved_domain:
+        k_resolved = _build_lookup_key(result.resolved_domain, None)
         if k_resolved and k_resolved not in keys:
             keys.append(k_resolved)
     if not keys:
@@ -186,9 +199,9 @@ async def _save_lookup_result(
             CompanyLookup(
                 user_id=user.id,
                 lookup_key=k,
-                resolved_domain=(resolved_domain or "")[:255],
-                resolved_company=(resolved_company or "")[:255],
-                contacts_count=len(contacts),
+                resolved_domain=(result.resolved_domain or "")[:255],
+                resolved_company=(result.resolved_company or "")[:255],
+                contacts_count=len(result.contacts),
             )
         )
 
@@ -254,10 +267,14 @@ async def _get_or_fetch_company_contacts(
             })
 
     await _save_lookup_result(
-        db, user,
-        domain=domain, company_name=company_name,
-        contacts=saved, resolved_domain=resolved_domain or None,
-        resolved_company=organization or None,
+        db,
+        user,
+        query=_LookupQuery(domain=domain, company_name=company_name),
+        result=_LookupResult(
+            contacts=saved,
+            resolved_domain=resolved_domain or None,
+            resolved_company=organization or None,
+        ),
     )
     # Flush dans un savepoint pour ne PAS rollback la transaction parente
     # (ce qui expirerait tous les objets ORM partagés par la requête).
@@ -331,40 +348,34 @@ async def _hunter_lookup(user_settings, recruiter_contact: dict, db: AsyncSessio
     return contacts[0].get("email") or None
 
 
-async def _generate_or_get_email_for_match(
+async def _refresh_existing_email_recruiter(
     db: AsyncSession,
     user: User,
     match: MatchingResult,
+    existing_email: GeneratedEmail,
 ) -> GeneratedEmail:
-    """
-    Renvoie l'email existant pour ce matching, ou en génère un nouveau et le persiste.
-    Idempotent (peut être appelé en parallèle, gère IntegrityError).
-    `match` doit avoir `.job_offer` eager-loaded.
-    """
-    # Idempotence
-    existing_result = await db.execute(
-        select(GeneratedEmail).where(GeneratedEmail.matching_result_id == match.id)
-    )
-    existing_email = existing_result.scalar_one_or_none()
-    if existing_email:
-        if not _is_valid_email(existing_email.recruiter_email):
-            recruiter_contact = _extract_contact_from_raw(
-                match.job_offer.raw_data if hasattr(match.job_offer, "raw_data") else None
-            )
-            fresh_email = recruiter_contact.get("contact_email")
-            if not _is_valid_email(fresh_email):
-                fresh_email = await _hunter_lookup(user.settings, recruiter_contact, db=db, user=user)
-            if _is_valid_email(fresh_email):
-                existing_email.recruiter_email = fresh_email
-                await db.flush()
-                await db.refresh(existing_email)
+    """Tente de récupérer un email recruteur valide pour un email déjà persisté."""
+    if _is_valid_email(existing_email.recruiter_email):
         return existing_email
+    recruiter_contact = _extract_contact_from_raw(
+        match.job_offer.raw_data if hasattr(match.job_offer, "raw_data") else None
+    )
+    fresh_email = recruiter_contact.get("contact_email")
+    if not _is_valid_email(fresh_email):
+        fresh_email = await _hunter_lookup(user.settings, recruiter_contact, db=db, user=user)
+    if _is_valid_email(fresh_email):
+        existing_email.recruiter_email = fresh_email
+        await db.flush()
+        await db.refresh(existing_email)
+    return existing_email
 
-    # Charger candidat + profil
+
+async def _load_candidate_profile(db: AsyncSession, candidate_id) -> tuple[Candidate, ExtractedProfile]:
+    """Charge le candidat + son profil extrait le plus récent. Lève HTTP 400 si absent."""
     cand_result = await db.execute(
         select(Candidate)
         .options(selectinload(Candidate.resumes).selectinload(Resume.extracted_profile))
-        .where(Candidate.id == match.candidate_id)
+        .where(Candidate.id == candidate_id)
     )
     candidate = cand_result.scalar_one_or_none()
     if not candidate or not candidate.resumes:
@@ -374,7 +385,16 @@ async def _generate_or_get_email_for_match(
     profile = latest_resume.extracted_profile
     if not profile:
         raise HTTPException(status_code=400, detail="Profil extrait introuvable")
+    return candidate, profile
 
+
+def _build_ai_payloads(
+    candidate: Candidate,
+    profile: ExtractedProfile,
+    match: MatchingResult,
+    user: User,
+) -> tuple[dict, dict, dict, dict]:
+    """Construit les dicts (profile, candidate, offer, agency) attendus par la couche IA."""
     profile_dict = {
         "skills": profile.skills or [],
         "experiences": profile.experiences or [],
@@ -396,8 +416,7 @@ async def _generate_or_get_email_for_match(
         "location": match.job_offer.location,
         "description": match.job_offer.description or "",
     }
-
-    agency_info = {}
+    agency_info: dict = {}
     if user.settings:
         s = user.settings
         agency_info = {
@@ -407,6 +426,81 @@ async def _generate_or_get_email_for_match(
             "agency_email": s.agency_email or "",
             "recruiter_name": f"{s.first_name or ''} {s.last_name or ''}".strip(),
         }
+    return profile_dict, candidate_dict, offer_dict, agency_info
+
+
+async def _resolve_recruiter_email_for_match(
+    db: AsyncSession, user: User, match: MatchingResult
+) -> str | None:
+    """Trouve le meilleur email recruteur (raw_data puis fallback Hunter)."""
+    recruiter_contact = _extract_contact_from_raw(
+        match.job_offer.raw_data if hasattr(match.job_offer, "raw_data") else None
+    )
+    recruiter_email_addr = recruiter_contact.get("contact_email")
+    if not _is_valid_email(recruiter_email_addr):
+        recruiter_email_addr = None
+    if not recruiter_email_addr:
+        recruiter_email_addr = await _hunter_lookup(user.settings, recruiter_contact, db=db, user=user)
+    return recruiter_email_addr
+
+
+async def _persist_generated_email(
+    db: AsyncSession,
+    match_id,
+    email_data: dict,
+    recruiter_email_addr: str | None,
+) -> GeneratedEmail:
+    """Insère l'email généré, en gérant la course concurrente (IntegrityError → relit la ligne)."""
+    generated_email = GeneratedEmail(
+        matching_result_id=match_id,
+        subject=email_data["subject"],
+        body=email_data["body"],
+        recruiter_email=recruiter_email_addr,
+        status="draft",
+    )
+    db.add(generated_email)
+    try:
+        await db.flush()
+        await db.refresh(generated_email)
+    except IntegrityError:
+        # Un rollback expire les objets ORM ; on a déjà capturé `match_id` en primitive.
+        await db.rollback()
+        race_result = await db.execute(
+            select(GeneratedEmail).where(GeneratedEmail.matching_result_id == match_id)
+        )
+        race_existing = race_result.scalar_one_or_none()
+        if race_existing:
+            return race_existing
+        raise
+    return generated_email
+
+
+async def _generate_or_get_email_for_match(
+    db: AsyncSession,
+    user: User,
+    match: MatchingResult,
+) -> GeneratedEmail:
+    """
+    Renvoie l'email existant pour ce matching, ou en génère un nouveau et le persiste.
+    Idempotent (peut être appelé en parallèle, gère IntegrityError).
+    `match` doit avoir `.job_offer` eager-loaded.
+    """
+    # Snapshot de l'id en primitive : un rollback ultérieur expirerait les objets ORM
+    # et accéder à `match.id` déclencherait un lazy-load illégal en contexte async.
+    match_id = match.id
+
+    # Idempotence : email déjà généré ?
+    existing_result = await db.execute(
+        select(GeneratedEmail).where(GeneratedEmail.matching_result_id == match_id)
+    )
+    existing_email = existing_result.scalar_one_or_none()
+    if existing_email:
+        return await _refresh_existing_email_recruiter(db, user, match, existing_email)
+
+    candidate, profile = await _load_candidate_profile(db, match.candidate_id)
+    profile_dict, candidate_dict, offer_dict, agency_info = _build_ai_payloads(
+        candidate, profile, match, user
+    )
 
     try:
         email_data = await generate_candidate_email(
@@ -426,42 +520,8 @@ async def _generate_or_get_email_for_match(
             detail=f"Erreur du service IA lors de la génération de l'email : {exc}",
         )
 
-    # Email recruteur (raw + fallback Hunter)
-    recruiter_contact = _extract_contact_from_raw(
-        match.job_offer.raw_data if hasattr(match.job_offer, "raw_data") else None
-    )
-    recruiter_email_addr = recruiter_contact.get("contact_email")
-    if not _is_valid_email(recruiter_email_addr):
-        recruiter_email_addr = None
-    if not recruiter_email_addr:
-        recruiter_email_addr = await _hunter_lookup(user.settings, recruiter_contact, db=db, user=user)
-
-    generated_email = GeneratedEmail(
-        matching_result_id=match.id,
-        subject=email_data["subject"],
-        body=email_data["body"],
-        recruiter_email=recruiter_email_addr,
-        status="draft",
-    )
-    db.add(generated_email)
-    # Capturer l'id AVANT toute possible rollback : un rollback expire tous les
-    # objets de la session et accéder à match.id ensuite déclenche un lazy-load
-    # illégal en contexte async (MissingGreenlet).
-    match_id = match.id
-    try:
-        await db.flush()
-        await db.refresh(generated_email)
-    except IntegrityError:
-        await db.rollback()
-        race_result = await db.execute(
-            select(GeneratedEmail).where(GeneratedEmail.matching_result_id == match_id)
-        )
-        race_existing = race_result.scalar_one_or_none()
-        if race_existing:
-            return race_existing
-        raise
-
-    return generated_email
+    recruiter_email_addr = await _resolve_recruiter_email_for_match(db, user, match)
+    return await _persist_generated_email(db, match_id, email_data, recruiter_email_addr)
 
 
 async def _precompute_one_email(matching_id: uuid.UUID, user_id: uuid.UUID) -> None:

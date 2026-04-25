@@ -8,16 +8,11 @@ import {
   Loader2,
   CheckCircle,
   Archive,
-  AlertCircle,
-  XCircle,
-  RefreshCw,
-  Pause,
-  Play,
-  Square,
-  UserCheck,
-  UserPlus,
 } from "lucide-react";
 import { uploadCV, uploadBulkCV, getBulkJobStatus, pauseBulkJob, resumeBulkJob, cancelBulkJob } from "@/lib/api";
+import { getApiErrorDetail } from "@/lib/utils";
+import BulkUploadProgress from "./cvupload/BulkUploadProgress";
+import DuplicateBanner from "./cvupload/DuplicateBanner";
 
 interface CVUploadProps {
   onSuccess: (data: any) => void;
@@ -66,7 +61,8 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
               if (last) onSuccess({ refreshList: true });
             }
           }
-        } catch {
+        } catch (err) {
+          if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
           // Ignore polling errors
         }
       }, 2000);
@@ -97,10 +93,9 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
         } else {
           onSuccess(response.data);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         setError(
-          err.response?.data?.detail ||
-            "Erreur lors de l'upload du CV. Vérifiez le format du fichier."
+          getApiErrorDetail(err, "Erreur lors de l'upload du CV. Vérifiez le format du fichier.")
         );
       } finally {
         setLoading(false);
@@ -121,8 +116,8 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
       );
       setDuplicateInfo(null);
       onSuccess(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Erreur lors de la mise à jour");
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err, "Erreur lors de la mise à jour"));
     } finally {
       setLoading(false);
     }
@@ -137,8 +132,8 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
       const response = await uploadCV(duplicateInfo.file, "new");
       setDuplicateInfo(null);
       onSuccess(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Erreur lors de la création");
+    } catch (err: unknown) {
+      setError(getApiErrorDetail(err, "Erreur lors de la création"));
     } finally {
       setLoading(false);
     }
@@ -157,10 +152,9 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
       try {
         const response = await uploadBulkCV(file);
         setBulkJob(response.data.job);
-      } catch (err: any) {
+      } catch (err: unknown) {
         setError(
-          err.response?.data?.detail ||
-            "Erreur lors de l'upload du ZIP."
+          getApiErrorDetail(err, "Erreur lors de l'upload du ZIP.")
         );
       } finally {
         setLoading(false);
@@ -254,47 +248,13 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
 
       {/* Duplicate detected banner */}
       {duplicateInfo && (
-        <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-5">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-6 h-6 text-amber-500 mt-0.5 flex-shrink-0" />
-            <div className="flex-1">
-              <h3 className="text-base font-semibold text-amber-800 dark:text-amber-300 mb-1">
-                Candidat similaire détecté
-              </h3>
-              <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
-                <strong>{duplicateInfo.existing_candidate.candidate_name}</strong> semble correspondre au CV importé.
-                {duplicateInfo.existing_candidate.match_reasons.includes("name") && " (même nom)"}
-                {duplicateInfo.existing_candidate.match_reasons.includes("face") && " (reconnaissance faciale)"}
-                {duplicateInfo.existing_candidate.match_reasons.includes("career") && " (parcours similaire)"}
-                {" — "}Similarité : {Math.round(duplicateInfo.existing_candidate.similarity * 100)}%
-              </p>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleDuplicateUpdate}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 transition-colors font-medium disabled:opacity-50"
-                >
-                  <UserCheck className="w-4 h-4" />
-                  Mettre à jour le candidat existant
-                </button>
-                <button
-                  onClick={handleDuplicateCreateNew}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium disabled:opacity-50"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Créer un nouveau candidat
-                </button>
-                <button
-                  onClick={() => setDuplicateInfo(null)}
-                  className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  Annuler
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DuplicateBanner
+          info={duplicateInfo}
+          loading={loading}
+          onUpdate={handleDuplicateUpdate}
+          onCreateNew={handleDuplicateCreateNew}
+          onDismiss={() => setDuplicateInfo(null)}
+        />
       )}
 
       {/* Dropzone */}
@@ -359,125 +319,14 @@ export default function CVUpload({ onSuccess, onStartMatching, bulkJob, onBulkJo
 
       {/* Bulk Job Progress */}
       {mode === "bulk" && bulkJob && (
-        <div className="mt-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              {bulkJob.status === "processing" ? (
-                <RefreshCw className="w-4 h-4 animate-spin text-primary-500" />
-              ) : bulkJob.status === "paused" ? (
-                <Pause className="w-4 h-4 text-amber-500" />
-              ) : bulkJob.status === "cancelled" ? (
-                <XCircle className="w-4 h-4 text-red-500" />
-              ) : (
-                <CheckCircle className="w-4 h-4 text-green-500" />
-              )}
-              {bulkJob.status === "processing"
-                ? "Traitement en cours..."
-                : bulkJob.status === "paused"
-                ? "En pause"
-                : bulkJob.status === "cancelled"
-                ? "Annulé"
-                : "Traitement terminé"}
-            </h3>
-            <div className="flex items-center gap-2">
-              {(bulkJob.status === "processing" || bulkJob.status === "paused") && (
-                <>
-                  {bulkJob.status === "processing" ? (
-                    <button
-                      onClick={handlePauseBulk}
-                      className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
-                      title="Mettre en pause"
-                    >
-                      <Pause className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleResumeBulk}
-                      className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
-                      title="Reprendre"
-                    >
-                      <Play className="w-4 h-4" />
-                    </button>
-                  )}
-                  <button
-                    onClick={handleCancelBulk}
-                    className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                    title="Arrêter"
-                  >
-                    <Square className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {bulkJob.processed_files}/{bulkJob.total_files} fichier(s)
-              </span>
-            </div>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-3">
-            <div
-              className="bg-primary-600 h-2.5 rounded-full transition-all duration-500"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-
-          <div className="flex gap-4 text-xs text-gray-600 dark:text-gray-400 mb-3">
-            <span className="flex items-center gap-1">
-              <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-              {bulkJob.successful_files} réussi(s)
-            </span>
-            {bulkJob.failed_files > 0 && (
-              <span className="flex items-center gap-1">
-                <XCircle className="w-3.5 h-3.5 text-red-500" />
-                {bulkJob.failed_files} échoué(s)
-              </span>
-            )}
-          </div>
-
-          {/* Results detail */}
-          {bulkJob.results && bulkJob.results.length > 0 && (
-            <div className="max-h-48 overflow-y-auto space-y-1">
-              {bulkJob.results.map((r, i) => (
-                <div
-                  key={i}
-                  className={`text-xs px-3 py-1.5 rounded flex items-center justify-between ${
-                    r.status === "success"
-                      ? "bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400"
-                      : "bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400"
-                  }`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    {r.status === "success" ? (
-                      <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                    )}
-                    <span className="truncate">{r.filename}</span>
-                  </span>
-                  {r.status === "success" && r.candidate_name && (
-                    <span className="ml-2 text-gray-500 dark:text-gray-400 truncate">
-                      → {r.candidate_name}
-                    </span>
-                  )}
-                  {r.status === "success" && r.candidate_id && onStartMatching && (
-                    <button
-                      onClick={() => onStartMatching(r.candidate_id!)}
-                      className="ml-2 flex-shrink-0 px-2 py-0.5 text-xs font-medium bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
-                    >
-                      Matching
-                    </button>
-                  )}
-                  {r.status === "failed" && r.error && (
-                    <span className="ml-2 text-red-500 truncate max-w-[200px]" title={r.error}>
-                      {r.error}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <BulkUploadProgress
+          bulkJob={bulkJob}
+          progressPct={progressPct}
+          onPause={handlePauseBulk}
+          onResume={handleResumeBulk}
+          onCancel={handleCancelBulk}
+          onStartMatching={onStartMatching}
+        />
       )}
 
       {error && (

@@ -20,6 +20,7 @@ import {
   Mail,
 } from "lucide-react";
 import { computeMatching, getCandidateMatchings, getProposalCounts, lookupRecruiter } from "@/lib/api";
+import { getApiErrorDetail } from "@/lib/utils";
 
 interface MatchingResultsProps {
   candidateId: string;
@@ -75,7 +76,8 @@ export default function MatchingResults({
         ]);
         setHistory(histRes.data || []);
         setProposalCounts(proposalsRes.data || {});
-      } catch {
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
         // Silencieux
       } finally {
         setHistoryLoading(false);
@@ -104,10 +106,9 @@ export default function MatchingResults({
       ]);
       setHistory(histResponse.data || []);
       setProposalCounts(proposalsRes.data || {});
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(
-        err.response?.data?.detail ||
-          "Erreur lors du calcul du matching"
+        getApiErrorDetail(err, "Erreur lors du calcul du matching")
       );
     } finally {
       setLoading(false);
@@ -126,7 +127,8 @@ export default function MatchingResults({
     try {
       const res = await lookupRecruiter(jobId);
       setRecruiterInfo(res.data);
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       setRecruiterInfo({ error: true });
     } finally {
       setRecruiterLoading(false);
@@ -150,7 +152,8 @@ export default function MatchingResults({
         hour: "2-digit",
         minute: "2-digit",
       });
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       return dateStr;
     }
   };

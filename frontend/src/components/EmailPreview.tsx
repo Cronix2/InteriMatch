@@ -18,6 +18,7 @@ import {
   Send,
 } from "lucide-react";
 import { generateEmail, updateEmail, getMe, downloadAnonymizedCV, downloadEmailEml, lookupRecruiter, getCompanyContacts, getCompanyContactsByName, updateEmailRecipients, sendEmail, getSmtpStatus, getEmailByMatching } from "@/lib/api";
+import { getApiErrorDetail, getApiErrorStatus } from "@/lib/utils";
 
 interface EmailPreviewProps {
   matchingResultId: string;
@@ -121,16 +122,17 @@ export default function EmailPreview({
     const loadSender = async () => {
       try {
         const res = await getMe();
-        const s = res.data.settings;
+        const settings = res.data.settings;
         senderInfoRef.current = {
-          firstName: s.first_name || "",
-          lastName: s.last_name || "",
-          company: s.company_name || "",
-          agencyPhone: s.agency_phone || "",
-          agencyEmail: s.agency_email || "",
-          agencyAddress: s.agency_address || "",
+          firstName: settings.first_name || "",
+          lastName: settings.last_name || "",
+          company: settings.company_name || "",
+          agencyPhone: settings.agency_phone || "",
+          agencyEmail: settings.agency_email || "",
+          agencyAddress: settings.agency_address || "",
         };
-      } catch {
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
         // silently fail — placeholders just won't be replaced
       }
     };
@@ -143,7 +145,8 @@ export default function EmailPreview({
       try {
         const res = await getSmtpStatus();
         setSmtpReady(!!res.data?.configured);
-      } catch {
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
         setSmtpReady(false);
       }
     };
@@ -188,9 +191,9 @@ export default function EmailPreview({
         const data = Array.isArray(res.data) ? res.data : [];
         setCompanyContacts(data);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[Hunter] Error loading contacts:", err);
-      setContactsError(err?.response?.data?.detail || "Erreur lors du chargement des contacts");
+      setContactsError(getApiErrorDetail(err, "Erreur lors du chargement des contacts"));
     } finally {
       setContactsLoading(false);
     }
@@ -233,7 +236,8 @@ export default function EmailPreview({
         let response;
         try {
           response = await getEmailByMatching(matchingResultId);
-        } catch {
+        } catch (err) {
+          if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
           response = await generateEmail(matchingResultId);
         }
         setEmailData(response.data);
@@ -253,7 +257,8 @@ export default function EmailPreview({
               const ce = recruiterContact.contact_email;
               if (ce && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ce)) rEmail = ce;
             }
-          } catch {
+          } catch (err) {
+            if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
             // silently fail
           }
         }
@@ -281,10 +286,9 @@ export default function EmailPreview({
         setEditBody(
           replaceSenderPlaceholders(response.data.body, firstName, lastName, company, agencyPhone, agencyEmail, agencyAddress)
         );
-      } catch (err: any) {
+      } catch (err: unknown) {
         setError(
-          err.response?.data?.detail ||
-            "Erreur lors de la génération du mail"
+          getApiErrorDetail(err, "Erreur lors de la génération du mail")
         );
       } finally {
         setLoading(false);
@@ -302,9 +306,36 @@ export default function EmailPreview({
       });
       setEmailData(response.data);
       setEditing(false);
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       setError("Erreur lors de la sauvegarde");
     }
+  };
+
+  // Tente de télécharger le .eml ; si pas possible (pas d'ID candidat ou erreur),
+  // ouvre un mailto: avec les destinataires/objet/corps courants.
+  const downloadEmlOrFallback = async (emailId: string): Promise<void> => {
+    if (candidateId) {
+      try {
+        const res = await downloadEmailEml(emailId, candidateId);
+        const url = window.URL.createObjectURL(new Blob([res.data], { type: "message/rfc822" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "email_proposition.eml";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        return;
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
+        // fallback mailto ci-dessous
+      }
+    }
+    const to = selectedRecipients.length > 0 ? encodeURIComponent(selectedRecipients.join(", ")) : "";
+    const subject = encodeURIComponent(editSubject);
+    const body = encodeURIComponent(editBody);
+    window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
   };
 
   const handleValidate = async () => {
@@ -312,28 +343,9 @@ export default function EmailPreview({
     try {
       const response = await updateEmail(emailData.id, { status: "validated" });
       setEmailData(response.data);
-
-      if (candidateId) {
-        try {
-          const res = await downloadEmailEml(emailData.id, candidateId);
-          const url = window.URL.createObjectURL(new Blob([res.data], { type: "message/rfc822" }));
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "email_proposition.eml";
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          window.URL.revokeObjectURL(url);
-          return;
-        } catch {
-          // fall through to mailto
-        }
-      }
-      const to = selectedRecipients.length > 0 ? encodeURIComponent(selectedRecipients.join(", ")) : "";
-      const subject = encodeURIComponent(editSubject);
-      const body = encodeURIComponent(editBody);
-      window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
-    } catch {
+      await downloadEmlOrFallback(emailData.id);
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       setError("Erreur lors de la validation");
     }
   };
@@ -346,14 +358,14 @@ export default function EmailPreview({
       const res = await sendEmail(emailData.id, candidateId);
       setSendInfo(`Mail envoye a : ${(res.data?.recipients || []).join(", ")}`);
       setEmailData((prev: any) => prev ? { ...prev, status: "sent", sent_at: res.data?.sent_at } : prev);
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const status = err?.response?.status;
-      if (status === 400 && typeof detail === "string" && detail.toLowerCase().includes("smtp")) {
+    } catch (err: unknown) {
+      const detail = getApiErrorDetail(err, "");
+      const status = getApiErrorStatus(err);
+      if (status === 400 && detail.toLowerCase().includes("smtp")) {
         setSmtpReady(false);
         setSendInfo("SMTP non configuré. Allez dans Paramètres > SMTP, ou utilisez 'Valider & Telecharger .eml'.");
       } else {
-        setSendInfo(typeof detail === "string" ? detail : "Erreur lors de l'envoi du mail.");
+        setSendInfo(detail || "Erreur lors de l'envoi du mail.");
       }
     } finally {
       setSending(false);
@@ -379,7 +391,8 @@ export default function EmailPreview({
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-    } catch {
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") console.debug("[silent catch]", err);
       // silently fail
     }
   };
@@ -437,26 +450,9 @@ export default function EmailPreview({
               )}
               <button
                 onClick={async () => {
-                  if (candidateId && emailData) {
-                    try {
-                      const res = await downloadEmailEml(emailData.id, candidateId);
-                      const url = window.URL.createObjectURL(new Blob([res.data], { type: "message/rfc822" }));
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = "email_proposition.eml";
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      window.URL.revokeObjectURL(url);
-                      return;
-                    } catch {
-                      // fallback below
-                    }
+                  if (emailData) {
+                    await downloadEmlOrFallback(emailData.id);
                   }
-                  const to = selectedRecipients.length > 0 ? encodeURIComponent(selectedRecipients.join(", ")) : "";
-                  const subject = encodeURIComponent(editSubject);
-                  const body = encodeURIComponent(editBody);
-                  window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
                 }}
                 className="flex items-center gap-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >

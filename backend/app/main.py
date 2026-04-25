@@ -97,20 +97,33 @@ async def lifespan(app: FastAPI):
                     " ai_provider VARCHAR(50) DEFAULT ''"
                 )
             )
-            # SMTP overrides utilisateur (BLOC 4)
-            for col, ddl in [
-                ("smtp_host", "VARCHAR(255) DEFAULT ''"),
-                ("smtp_port", "INTEGER"),
-                ("smtp_user", "VARCHAR(255) DEFAULT ''"),
-                ("smtp_password", "VARCHAR(500) DEFAULT ''"),
-                ("smtp_use_tls", "BOOLEAN DEFAULT TRUE"),
-                ("smtp_from", "VARCHAR(255) DEFAULT ''"),
-            ]:
-                await conn.execute(
-                    text(
-                        f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col} {ddl}"
-                    )
-                )
+            # SMTP overrides utilisateur (BLOC 4) — DDL déroulé explicitement.
+            # On évite tout text(f"...") même avec des constantes pour ne pas
+            # laisser de pattern d'injection à analyser plus tard.
+            await conn.execute(text(
+                "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                " smtp_host VARCHAR(255) DEFAULT ''"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                " smtp_port INTEGER"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                " smtp_user VARCHAR(255) DEFAULT ''"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                " smtp_password VARCHAR(500) DEFAULT ''"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                " smtp_use_tls BOOLEAN DEFAULT TRUE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS"
+                " smtp_from VARCHAR(255) DEFAULT ''"
+            ))
             # GeneratedEmail : trace d'envoi
             await conn.execute(
                 text(
