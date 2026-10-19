@@ -1,3 +1,6 @@
+<p align="center"><img src="interimatch_logo.png" alt="Interimatch" width="300"></p>
+
+
 # InteriMatch AI
 
 > Application métier intelligente pour les entreprises d'intérim — matching CV / offres d'emploi avec IA
